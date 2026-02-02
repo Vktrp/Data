@@ -10,72 +10,72 @@ Hôpital Pitié-Salpêtrière - Prédiction des Admissions
 
 XGBoost:
   Description: Boosting avec gradient optimisé
-  MAE:  3.31 patients
-  RMSE: 4.30 patients
-  R²:   0.7105 (71.0% de variance expliquée)
-  MAPE: 7.98%
+  MAE:  28.52 patients
+  RMSE: 34.17 patients
+  R²:   0.4038 (40.4% de variance expliquée)
+  MAPE: 8.46%
   
-  Overfitting: R²_train=1.0000, R²_test=0.7105
-               Différence: 0.2895
+  Overfitting: R²_train=1.0000, R²_test=0.4038
+               Différence: 0.5962
                ⚠️ Risque de surapprentissage
 
 Random Forest:
   Description: Ensemble d'arbres de décision
-  MAE:  3.21 patients
-  RMSE: 4.05 patients
-  R²:   0.7427 (74.3% de variance expliquée)
-  MAPE: 8.15%
+  MAE:  34.18 patients
+  RMSE: 43.26 patients
+  R²:   0.0444 (4.4% de variance expliquée)
+  MAPE: 9.89%
   
-  Overfitting: R²_train=0.9818, R²_test=0.7427
-               Différence: 0.2390
+  Overfitting: R²_train=0.9902, R²_test=0.0444
+               Différence: 0.9458
                ⚠️ Risque de surapprentissage
 
 Gradient Boosting:
   Description: Boosting séquentiel
-  MAE:  2.28 patients
-  RMSE: 2.81 patients
-  R²:   0.8763 (87.6% de variance expliquée)
-  MAPE: 5.97%
+  MAE:  30.73 patients
+  RMSE: 38.04 patients
+  R²:   0.2612 (26.1% de variance expliquée)
+  MAPE: 9.28%
   
-  Overfitting: R²_train=1.0000, R²_test=0.8763
-               Différence: 0.1237
-               ✅ Pas de surapprentissage
+  Overfitting: R²_train=1.0000, R²_test=0.2612
+               Différence: 0.7388
+               ⚠️ Risque de surapprentissage
 
 
 2. CLASSEMENT
 ======================================================================
 
-1. Gradient Boosting    R² = 0.8763
-2. Random Forest        R² = 0.7427
-3. XGBoost              R² = 0.7105
+1. XGBoost              R² = 0.4038
+2. Gradient Boosting    R² = 0.2612
+3. Random Forest        R² = 0.0444
 
 
 3. MODÈLE SÉLECTIONNÉ
 ======================================================================
 
-🏆 Gradient Boosting
+🏆 XGBoost
 
 Justification:
-  - Meilleur R² (0.8763)
-  - Erreur moyenne de ±2.28 patients
-  - MAPE de 5.97% (très faible)
+  - Meilleur R² (0.4038)
+  - Erreur moyenne de ±28.52 patients
+  - MAPE de 8.46% (très faible)
   
 Interprétation du R²:
-  Le modèle explique 87.6% de la variance des admissions.
-  Cela signifie que 87.6% des variations d'admissions sont
+  Le modèle explique 40.4% de la variance des admissions.
+  Cela signifie que 40.4% des variations d'admissions sont
   prédictibles grâce aux features temporelles et historiques.
 
 4. RECOMMANDATION
 ======================================================================
 
-Le modèle Gradient Boosting est recommandé pour la mise en production car:
-  ✅ Performance optimale (R² = 0.8763)
-  ✅ Erreur acceptable (MAE = 2.28 patients)
+Le modèle XGBoost est recommandé pour la mise en production car:
+  ✅ Performance optimale (R² = 0.4038)
+  ✅ Erreur acceptable (MAE = 28.52 patients)
   ✅ Pas de surapprentissage significatif
   ✅ Généralise bien sur données de test
 
 Ce modèle sera utilisé pour les prédictions à 7 jours.
 
 ======================================================================
-Rapport généré le 2026-02-02 15:43:25
+Rapport généré le 2026-02-02 17:03:03
 ======================================================================

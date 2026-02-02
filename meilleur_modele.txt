@@ -1,1 +1,1 @@
-Gradient Boosting
+XGBoost

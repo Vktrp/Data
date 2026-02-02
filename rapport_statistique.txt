@@ -1,0 +1,84 @@
+
+======================================================================
+RAPPORT D'ANALYSE STATISTIQUE
+Hôpital Pitié-Salpêtrière
+======================================================================
+
+1. TESTS STATISTIQUES
+======================================================================
+
+1.1. Test t de Student : Hiver vs Été
+   Hypothèse H0 : Pas de différence entre hiver et été
+   Moyenne hiver : 340.9 admissions/jour
+   Moyenne été   : 197.6 admissions/jour
+   Différence    : 143.3 (+72.5%)
+   t-statistic   : 37.573
+   p-value       : 0.000000
+   Conclusion    : ✅ Différence SIGNIFICATIVE (p<0.05)
+
+1.2. Corrélation Gravité × Durée de séjour
+   Coefficient r : 0.559
+   R²            : 0.312 (31.2% variance expliquée)
+   Interprétation : Corrélation modérée
+
+1.3. ANOVA : Durée par service
+   F-statistic : 0.370
+   p-value     : 0.829896
+   Conclusion  : ❌ Pas de différence
+
+1.4. Test de normalité (Shapiro-Wilk)
+   Statistique : 0.888
+   p-value     : 0.000000
+   Distribution : Non-normale
+
+2. GRAPHIQUES GÉNÉRÉS
+======================================================================
+
+Graph 7 : Heatmap Jour × Mois
+   → Permet d'identifier les patterns hebdomadaires et mensuels
+   → Justification : Visualisation 2D pour croiser 2 dimensions temporelles
+
+Graph 8 : Boxplot par Mois
+   → Montre la distribution et les outliers mensuels
+   → Justification : Visualise médiane, quartiles et valeurs extrêmes
+
+Graph 9 : Décomposition Série Temporelle
+   → Sépare tendance, saisonnalité et bruit
+   → Justification : Analyse structurelle des composantes
+
+Graph 10 : Corrélation Gravité × Durée
+   → Quantifie la relation entre gravité et durée
+   → Justification : Scatter plot avec régression pour relation linéaire
+
+Graph 11 : Violin Plot par Service
+   → Distribution complète de la durée par service
+   → Justification : Combine boxplot et densité de probabilité
+
+Graph 12 : Autocorrélation (ACF/PACF)
+   → Détecte les dépendances temporelles
+   → Justification : Essentiel pour modèles ARIMA/séries temporelles
+
+3. PÉRIODES CRITIQUES IDENTIFIÉES
+======================================================================
+
+Critères : Admissions > Moyenne + 2σ
+
+Seuil critique : 372.3 admissions/jour
+Nombre de jours critiques : 11
+
+Périodes critiques détectées :
+  - 2024-01-12 : 394 admissions (Événement: grippe)
+  - 2024-01-16 : 377 admissions (Événement: grippe)
+  - 2024-12-03 : 389 admissions (Événement: covid)
+  - 2024-12-05 : 382 admissions (Événement: covid)
+  - 2024-12-12 : 378 admissions (Événement: covid)
+  - 2024-12-16 : 393 admissions (Événement: covid)
+  - 2024-12-18 : 391 admissions (Événement: covid)
+  - 2024-12-19 : 393 admissions (Événement: covid)
+  - 2024-12-23 : 388 admissions (Événement: covid)
+  - 2024-12-26 : 379 admissions (Événement: covid)
+  - 2024-12-27 : 401 admissions (Événement: covid)
+
+======================================================================
+Rapport généré le 2026-02-02 23:20:47
+======================================================================

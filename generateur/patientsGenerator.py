@@ -1,166 +1,142 @@
 import pandas as pd
 import numpy as np
 from pathlib import Path
-from datetime import datetime
 
 BASE_DIR = Path(__file__).resolve().parents[1]  # .../data
-
 np.random.seed(42)
 
 # ----------------------------
-# PARAMÈTRES
+# PARAMÈTRES (MVP + multi-années)
 # ----------------------------
 START = "2014-01-01"
 END   = "2024-12-31"
 
+# Admissions moyennes par jour (calibrage global)
 BASE_ADM_PER_DAY = 220
-VARIANCE = 45
 
 # Facteurs saisonniers
-WINTER_FACTOR = 1.25
-SUMMER_FACTOR = 0.85
-WEEKEND_FACTOR = 0.90
+WINTER_FACTOR  = 1.25   # Jan/Feb/Dec
+SUMMER_FACTOR  = 0.85   # Jul/Aug
+WEEKEND_FACTOR = 0.90   # Sam/Dim
 
-# Services + répartition
+# Minimum d'admissions/jour (évite jours trop bas) : proportionnel à la base
+MIN_ADM_PER_DAY = int(BASE_ADM_PER_DAY * 0.40)  # ex: 88 si base=220
+
+# ----------------------------
+# Événements (historiquement cohérents)
+# ----------------------------
+def get_event(date: pd.Timestamp) -> str:
+    y = int(date.year)
+    m = int(date.month)
+
+    # Canicule en été (toutes années)
+    if m == 7:
+        return "canicule"
+
+    # Grippe en hiver (toutes années)
+    if m in [1, 2]:
+        return "grippe"
+
+    # COVID : à partir de 2020 seulement
+    # - vagues plus fortes 2020-2021 (plusieurs mois)
+    if y in [2020, 2021] and m in [3, 4, 10, 11, 12]:
+        return "covid"
+    # - vagues saisonnières ensuite (fin d'année)
+    if y >= 2022 and m in [11, 12]:
+        return "covid"
+
+    return "none"
+
+# Multiplicateurs d'admissions par événement
+EVENT_ADM_MULT = {
+    "none": 1.00,
+    "grippe": 1.25,
+    "covid": 1.35,
+    "canicule": 1.10,
+}
+
+# ----------------------------
+# Services + répartition (somme = 1)
+# ----------------------------
 services = ["urgences", "cardiologie", "neurologie", "pediatrie", "reanimation"]
 service_p = [0.55, 0.15, 0.12, 0.12, 0.06]
 
-# Gravité
+# Gravité (1-5) selon contexte
 grav_p_normal = [0.22, 0.30, 0.28, 0.15, 0.05]
-grav_p_event  = [0.10, 0.22, 0.33, 0.23, 0.12]
+grav_p_event  = [0.10, 0.22, 0.33, 0.23, 0.12]  # + grave en période d'event
 
-# Durée de séjour
+# Durée de séjour par gravité (moyennes approx en jours)
 LOS_MEAN = {1: 2.0, 2: 3.0, 3: 5.0, 4: 8.0, 5: 12.0}
-LOS_MAX = 30
+LOS_MAX = 30  # plafond simple
 
 # ----------------------------
-# FONCTION ÉVÉNEMENT RÉALISTE
-# ----------------------------
-def get_event(date):
-    """
-    Retourne l'événement selon la date RÉELLE
-    - Grippe : chaque année janvier-février
-    - COVID : seulement 2020-2023 (nov-déc)
-    - Canicule : chaque année juillet
-    """
-    year = date.year
-    month = date.month
-    day = date.day
-    
-    # GRIPPE : Tous les ans, janvier-février
-    if month in [1, 2]:
-        return "grippe", 1.25
-    
-    # COVID : Seulement 2020-2023, mars OU novembre-décembre
-    if year in [2020, 2021, 2022, 2023]:
-        # Première vague : mars 2020
-        if year == 2020 and month == 3:
-            return "covid", 1.40
-        # Vagues hivernales : nov-déc 2020-2023
-        if month in [11, 12]:
-            return "covid", 1.35
-    
-    # CANICULE : Tous les ans, juillet
-    if month == 7 and day >= 15:
-        return "canicule", 1.10
-    
-    # Pas d'événement
-    return "none", 1.0
-
-# ----------------------------
-# GÉNÉRATION
+# GÉNÉRATION JOUR PAR JOUR
 # ----------------------------
 dates = pd.date_range(START, END, freq="D")
 rows = []
 patient_id = 1
 
-print("=" * 70)
-print("🔄 GÉNÉRATION DE PATIENTS AVEC ÉVÉNEMENTS RÉALISTES")
-print("=" * 70)
-
 for d in dates:
-    month = d.month
-    dow = d.dayofweek
-    
-    # Événement réaliste
-    event, event_factor = get_event(d)
-    
-    # Saisonnalité
+    month = int(d.month)
+    dow = int(d.dayofweek)  # 0=lun ... 5=sam 6=dim
+
+    event = get_event(d)
+
+    # saisonnalité
     factor = 1.0
     if month in [1, 2, 12]:
         factor *= WINTER_FACTOR
     elif month in [7, 8]:
         factor *= SUMMER_FACTOR
-    
-    # Weekend
+
+    # week-end
     if dow in [5, 6]:
         factor *= WEEKEND_FACTOR
-    
-    # Événement
-    factor *= event_factor
-    
-    # Admissions du jour
+
+    # événement
+    factor *= EVENT_ADM_MULT.get(event, 1.0)
+
+    # admissions du jour (Poisson = réaliste pour comptages)
     lam = BASE_ADM_PER_DAY * factor
-    MIN_ADM_PER_DAY = 120
     n_today = int(np.random.poisson(lam))
     n_today = max(MIN_ADM_PER_DAY, n_today)
-    
-    # Générer patients
+
     for _ in range(n_today):
-        # Gravité
+        # gravité
         if event != "none":
-            gravite = np.random.choice([1,2,3,4,5], p=grav_p_event)
+            gravite = np.random.choice([1, 2, 3, 4, 5], p=grav_p_event)
         else:
-            gravite = np.random.choice([1,2,3,4,5], p=grav_p_normal)
-        
-        # Durée séjour
-        mean = LOS_MEAN[gravite]
+            gravite = np.random.choice([1, 2, 3, 4, 5], p=grav_p_normal)
+
+        # durée de séjour (gamma = asymétrique, plus réaliste qu'une normale)
+        mean = float(LOS_MEAN[int(gravite)])
         shape = 2.0
         scale = mean / shape
         duree = int(np.ceil(np.random.gamma(shape=shape, scale=scale)))
         duree = max(1, min(LOS_MAX, duree))
-        
-        row = [
+
+        rows.append([
             patient_id,
-            d,
+            d,  # datetime64 (mieux que string pour parsings futurs)
             np.random.choice(services, p=service_p),
             int(np.random.randint(0, 100)),
             np.random.choice(["M", "F"]),
             int(gravite),
             int(duree),
             1,
-            event  # ← Événement réaliste
-        ]
-        rows.append(row)
+            event
+        ])
         patient_id += 1
 
 df = pd.DataFrame(rows, columns=[
-    "patient_id","date_admission","service","age","sexe",
-    "gravite","duree_sejour","lits_utilises","event"
+    "patient_id", "date_admission", "service", "age", "sexe",
+    "gravite", "duree_sejour", "lits_utilises", "event"
 ])
 
-# Sauvegarder
-df.to_csv(BASE_DIR / "patients.csv", index=False)
+out_path = BASE_DIR / "patients.csv"
+df.to_csv(out_path, index=False)
 
-# Stats
-print(f"\n✅ PATIENTS GÉNÉRÉS: {len(df):,}")
-print(f"\n📊 STATISTIQUES PAR ÉVÉNEMENT:")
-events_count = df['event'].value_counts()
-for event, count in events_count.items():
-    pct = (count / len(df)) * 100
-    print(f"   {event:<12} {count:>8,} patients ({pct:>5.2f}%)")
-
-print(f"\n📅 ÉVÉNEMENTS PAR ANNÉE:")
-for year in range(2014, 2025):
-    year_data = df[df['date_admission'].dt.year == year]
-    events = year_data['event'].value_counts()
-    
-    covid_count = events.get('covid', 0)
-    grippe_count = events.get('grippe', 0)
-    canicule_count = events.get('canicule', 0)
-    
-    print(f"   {year}: COVID={covid_count:>6,} | Grippe={grippe_count:>6,} | Canicule={canicule_count:>6,}")
-
-print("\n" + "=" * 70)
-print("✅ patients.csv généré avec événements réalistes")
-print("=" * 70)
+print(f"patients.csv généré ✔  (N={len(df)}) -> {out_path}")
+print(f"Période: {df['date_admission'].min()} -> {df['date_admission'].max()}")
+print("Admissions/jour (moyenne):", df.groupby(df["date_admission"].dt.floor("D")).size().mean())
+print("Durée séjour (moyenne):", df["duree_sejour"].mean())

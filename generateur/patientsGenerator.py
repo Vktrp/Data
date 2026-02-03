@@ -1,5 +1,8 @@
 import pandas as pd
 import numpy as np
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[1]  # .../data
 
 np.random.seed(42)
 
@@ -10,7 +13,7 @@ START = "2024-01-01"
 END   = "2024-12-31"
 
 # Admissions moyennes par jour (calibrage)
-BASE_ADM_PER_DAY = 220  # ~300/jour -> avec LOS ~5j => ~1500 lits occupés
+BASE_ADM_PER_DAY = 220  # ~220/jour -> avec LOS ~5j => ~1100 lits occupés (avant saison/event)
 
 # Facteurs saisonniers
 WINTER_FACTOR = 1.25   # Jan/Feb/Dec
@@ -73,7 +76,9 @@ for d in dates:
 
     # admissions du jour (Poisson = réaliste pour comptages)
     lam = BASE_ADM_PER_DAY * factor
+    MIN_ADM_PER_DAY = 120
     n_today = int(np.random.poisson(lam))
+    n_today = max(MIN_ADM_PER_DAY, n_today)
 
     # générer n_today patients
     for _ in range(n_today):
@@ -92,7 +97,7 @@ for d in dates:
 
         row = [
             patient_id,
-            d.strftime("%Y-%m-%d"),
+            d,
             np.random.choice(services, p=service_p),
             int(np.random.randint(0, 100)),
             np.random.choice(["M", "F"]),
@@ -109,5 +114,5 @@ df = pd.DataFrame(rows, columns=[
     "gravite","duree_sejour","lits_utilises","event"
 ])
 
-df.to_csv("patients.csv", index=False)
+df.to_csv(BASE_DIR / "patients.csv", index=False)
 print(f"patients.csv généré ✔  (N={len(df)})")

@@ -1,8 +1,11 @@
 import pandas as pd
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parents[1]  # .../data
 
 LITS_TOTAL = 1800
 
-patients = pd.read_csv("patients.csv", parse_dates=["date_admission"])
+patients = pd.read_csv(BASE_DIR / "patients.csv", parse_dates=["date_admission"])
 
 # Construire les intervalles d'occupation par patient
 patients["date_sortie"] = patients["date_admission"] + pd.to_timedelta(patients["duree_sejour"], unit="D")
@@ -13,10 +16,43 @@ dates = pd.date_range(patients["date_admission"].min(), patients["date_sortie"].
 rows = []
 for d in dates:
     occ = ((patients["date_admission"] <= d) & (patients["date_sortie"] > d)).sum()
+
     dispo = max(0, LITS_TOTAL - occ)
-    rows.append([d.strftime("%Y-%m-%d"), LITS_TOTAL, dispo, occ, "all"])
+    surcapacite = max(0, occ - LITS_TOTAL)  # utile si jamais occ > capacité
+    taux_occupation = occ / LITS_TOTAL
 
-beds = pd.DataFrame(rows, columns=["date","lits_total","lits_disponibles","lits_occupees","service"])
-beds.to_csv("beds.csv", index=False)
+    rows.append([
+        d.strftime("%Y-%m-%d"),
+        LITS_TOTAL,
+        dispo,
+        occ,
+        taux_occupation,
+        surcapacite,
+        "all"
+    ])
 
+beds = pd.DataFrame(
+    rows,
+    columns=[
+        "date",
+        "lits_total",
+        "lits_disponibles",
+        "lits_occupees",
+        "taux_occupation",
+        "surcapacite",
+        "service"
+    ],
+)
+
+def risk_level(dispo, taux):
+    if dispo < 100 or taux >= 0.95:
+        return "critique"
+    if dispo < 300 or taux >= 0.90:
+        return "tension"
+    return "normal"
+
+beds["niveau_risque"] = beds.apply(lambda r: risk_level(r["lits_disponibles"], r["taux_occupation"]), axis=1)
+
+beds["taux_occupation"] = beds["taux_occupation"].round(3)
+beds.to_csv(BASE_DIR / "beds.csv", index=False)
 print("beds.csv généré ✔")

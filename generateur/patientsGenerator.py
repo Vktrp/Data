@@ -9,7 +9,7 @@ np.random.seed(42)
 # ----------------------------
 # PARAMÈTRES À AJUSTER (MVP)
 # ----------------------------
-START = "2024-01-01"
+START = "2014-01-01"
 END   = "2024-12-31"
 
 # Admissions moyennes par jour (calibrage)

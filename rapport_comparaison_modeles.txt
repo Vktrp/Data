@@ -77,5 +77,5 @@ Le modèle XGBoost est recommandé pour la mise en production car:
 Ce modèle sera utilisé pour les prédictions à 7 jours.
 
 ======================================================================
-Rapport généré le 2026-02-02 17:03:03
+Rapport généré le 2026-02-03 11:33:25
 ======================================================================

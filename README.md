@@ -132,16 +132,12 @@ python3 analyse_statistique.py  # Génère graphs 7-12 + rapport
 
 ### Comparaison des Algorithmes
 
-| Modèle | R² | MAE | MAPE | Temps |
-|--------|-----|-----|------|-------|
-| XGBoost | 0.71 | 3.45 | 8.2% | 2.3s |
-| Random Forest | 0.74 | 3.12 | 7.5% | 3.1s |
-| **Gradient Boosting** | **0.88** | **2.28** | **6.0%** | **1.8s** |
+| Modèle | R² | MAE | MAPE | 
+|--------|-----|-----|------|
+| XGBoost | 0.40 | 28.52 | 8.46% |
+| Random Forest | 0.04 | 34.18 | 9.89% |
+| Gradient Boosting | 0.26 | 30.73 | 9.28% |
 
-**Choix** : Gradient Boosting retenu pour :
-- Meilleure précision (R²=0.88)
-- Pas d'overfitting (R²_train ≈ R²_test)
-- Performance optimale pour séries temporelles
 
 ### 56 Features Engineerées
 

@@ -12,7 +12,7 @@ START = "2014-01-01"
 END   = "2024-12-31"
 
 # Admissions moyennes par jour (calibrage global)
-BASE_ADM_PER_DAY = 160
+BASE_ADM_PER_DAY = 220
 
 # Facteurs saisonniers
 WINTER_FACTOR  = 1.10   # Jan/Feb/Dec

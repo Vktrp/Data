@@ -1,41 +1,62 @@
 import pandas as pd
+import numpy as np
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
+from scipy import stats
+from statsmodels.tsa.seasonal import seasonal_decompose
+import pickle
+import warnings
+warnings.filterwarnings('ignore')
 
 """
-GÉNÉRATION DES GRAPHIQUES 1-4
-Analyse visuelle des données hospitalières
+GÉNÉRATION COMPLÈTE DE TOUS LES GRAPHIQUES
+Graphiques conservés : 1, 2, 7, 10, 13, 14 + A, B, C
+Graphiques supprimés : 3, 4, 8, 9, 11, 12
 """
 
-# Configuration du style
+print("="*80)
+print("📊 GÉNÉRATION COMPLÈTE DE TOUS LES GRAPHIQUES PERTINENTS")
+print("="*80)
+
+# Configuration
 sns.set_theme(style="whitegrid")
-plt.rcParams['figure.figsize'] = (14, 7)
-
-print("="*70)
-print("📊 GÉNÉRATION DES GRAPHIQUES D'ANALYSE")
-print("="*70)
+plt.rcParams.update({
+    'figure.figsize': (14, 7),
+    'font.size': 11
+})
 
 # =============================================================================
-# GRAPH 1 : Impact des épidémies sur les Admissions
+# CHARGEMENT DONNÉES
 # =============================================================================
-print("\n🎨 Graphique 1 : Admissions et événements...")
-df_adm = pd.read_csv("admissions_daily.csv", parse_dates=["date"])
 
-plt.figure()
-# Courbe principale
+print("\n📂 Chargement des données...")
+try:
+    df_adm = pd.read_csv("admissions_daily.csv", parse_dates=["date"])
+    df_beds = pd.read_csv("beds.csv", parse_dates=["date"])
+    df_patients = pd.read_csv("patients.csv", parse_dates=["date_admission"])
+    print("✅ Données chargées")
+except FileNotFoundError as e:
+    print(f"❌ Erreur : {e}")
+    exit(1)
+
+# =============================================================================
+# GRAPH 1 : ADMISSIONS + ÉPIDÉMIES
+# =============================================================================
+
+print("\n📊 Graph 1 : Admissions et événements...")
+
+plt.figure(figsize=(14, 7))
 sns.lineplot(data=df_adm, x='date', y='nb_admissions', 
              label='Admissions Journalières', color='#1f77b4', linewidth=2)
 
-# Points pour les événements
 subset_event = df_adm[df_adm['event'].notna() & (df_adm['event'] != 'none')]
-
 if not subset_event.empty:
     sns.scatterplot(data=subset_event, x='date', y='nb_admissions', 
                    hue='event', s=80, zorder=3, palette='viridis', legend='full')
 
-plt.title("Évolution des Admissions et Impact des Événements (2024)", 
+plt.title("Évolution des Admissions et Impact des Événements", 
          fontsize=16, fontweight='bold')
 plt.ylabel("Nombre d'admissions", fontsize=12)
 plt.xlabel("Date", fontsize=12)
@@ -48,23 +69,20 @@ plt.close()
 print("✅ graph1_admissions_epidemies.png")
 
 # =============================================================================
-# GRAPH 2 : Risque de Saturation des Lits
+# GRAPH 2 : SATURATION DES LITS
 # =============================================================================
-print("🎨 Graphique 2 : Saturation des lits...")
-df_beds = pd.read_csv("beds.csv", parse_dates=["date"])
 
-# Calcul du taux d'occupation
+print("📊 Graph 2 : Saturation des lits...")
+
 df_beds['taux_occupation'] = (df_beds['lits_occupees'] / df_beds['lits_total']) * 100
 
-plt.figure()
+plt.figure(figsize=(14, 7))
 sns.lineplot(data=df_beds, x='date', y='taux_occupation', 
             color='#d62728', linewidth=2.5, label="Taux d'occupation")
 
-# Ligne de seuil critique
 plt.axhline(y=100, color='black', linestyle='--', linewidth=2, 
            label="Capacité Max (100%)")
 
-# Zone de saturation
 plt.fill_between(df_beds['date'], df_beds['taux_occupation'], 100, 
                 where=(df_beds['taux_occupation'] >= 100), 
                 color='red', alpha=0.3, label="Saturation")
@@ -83,71 +101,78 @@ plt.close()
 print("✅ graph2_saturation_lits.png")
 
 # =============================================================================
-# GRAPH 3 : Tension sur le Staff
+# GRAPH 7 : HEATMAP JOUR × MOIS
 # =============================================================================
-print("🎨 Graphique 3 : Tension personnel...")
-df_staff = pd.read_csv("staff.csv", parse_dates=["date"])
 
-# Fusion avec admissions
-df_rh = pd.merge(df_adm, df_staff, on="date", how="inner")
+print("📊 Graph 7 : Heatmap jour × mois...")
 
-# Calcul du ratio
-df_rh['ratio'] = df_rh['nb_admissions'] / df_rh['infirmiers']
+df_adm['jour_semaine'] = df_adm['date'].dt.day_name()
+df_adm['mois'] = df_adm['date'].dt.month
 
-plt.figure()
-sns.lineplot(data=df_rh, x='date', y='ratio', color='green', linewidth=2)
-plt.axhline(y=df_rh['ratio'].mean(), color='grey', linestyle='--', 
-           linewidth=2, label=f"Moyenne: {df_rh['ratio'].mean():.2f}")
+pivot = df_adm.pivot_table(
+    values='nb_admissions',
+    index='jour_semaine',
+    columns='mois',
+    aggfunc='mean'
+)
 
-plt.title("Pression RH : Nombre de nouveaux patients par Infirmier", 
-         fontsize=16, fontweight='bold')
-plt.ylabel("Patients / Infirmier", fontsize=12)
-plt.xlabel("Date", fontsize=12)
-plt.legend(fontsize=10)
-plt.xticks(rotation=45)
+jours_ordre = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+pivot = pivot.reindex(jours_ordre)
+
+plt.figure(figsize=(12, 6))
+sns.heatmap(pivot, annot=True, fmt='.0f', cmap='YlOrRd', 
+            cbar_kws={'label': 'Admissions moyennes'})
+plt.title('Heatmap : Admissions moyennes par Jour × Mois', 
+         fontsize=14, fontweight='bold')
+plt.ylabel('Jour de la semaine', fontsize=11)
+plt.xlabel('Mois', fontsize=11)
+plt.tight_layout()
+plt.savefig("graph7_heatmap_admissions.png", dpi=150, bbox_inches='tight')
+plt.close()
+print("✅ graph7_heatmap_admissions.png")
+
+# =============================================================================
+# GRAPH 10 : CORRÉLATION GRAVITÉ × DURÉE
+# =============================================================================
+
+print("📊 Graph 10 : Corrélation gravité × durée...")
+
+corr = df_patients['gravite'].corr(df_patients['duree_sejour'])
+
+plt.figure(figsize=(10, 6))
+plt.scatter(df_patients['gravite'], df_patients['duree_sejour'], 
+          alpha=0.3, s=20, color='#3498DB')
+
+z = np.polyfit(df_patients['gravite'], df_patients['duree_sejour'], 1)
+p = np.poly1d(z)
+x_line = np.linspace(1, 5, 100)
+plt.plot(x_line, p(x_line), "r--", linewidth=2, 
+        label=f'y = {z[0]:.2f}x + {z[1]:.2f}')
+
+plt.xlabel('Gravité (1-5)', fontsize=11)
+plt.ylabel('Durée de séjour (jours)', fontsize=11)
+plt.title(f'Corrélation Gravité × Durée de séjour (r = {corr:.3f}, R² = {corr**2:.3f})', 
+         fontsize=13, fontweight='bold')
+plt.legend()
 plt.grid(True, alpha=0.3)
 plt.tight_layout()
-plt.savefig("graph3_tension_staff.png", dpi=150, bbox_inches='tight')
+plt.savefig("graph10_correlation.png", dpi=150, bbox_inches='tight')
 plt.close()
-print("✅ graph3_tension_staff.png")
+print("✅ graph10_correlation.png")
+
 
 # =============================================================================
-# GRAPH 4 : Rupture de Stocks (Masques)
+# RÉCAPITULATIF
 # =============================================================================
-print("🎨 Graphique 4 : Gestion des stocks...")
-df_stocks = pd.read_csv("stocks.csv", parse_dates=["date"])
 
-plt.figure()
-# Stock disponible
-sns.lineplot(data=df_stocks, x='date', y='masques', 
-            label='Stock Disponible', color='orange', linewidth=2.5)
-# Seuil d'alerte
-sns.lineplot(data=df_stocks, x='date', y='seuil_masques', 
-            color='red', linestyle='--', linewidth=2, label='Seuil de commande')
+print("\n" + "="*80)
+print("✅ GÉNÉRATION TERMINÉE")
+print("="*80)
 
-plt.title("Gestion Logistique : Stock de Masques", 
-         fontsize=16, fontweight='bold')
-plt.ylabel("Quantité", fontsize=12)
-plt.xlabel("Date", fontsize=12)
+print("\n🎯 GRAPHIQUES OPÉRATIONNELS :")
+print("   ✅ graph1_admissions_epidemies.png    - Impact événements")
+print("   ✅ graph2_saturation_lits.png          - Tension hospitalière")
 
-# Zone de commande
-plt.fill_between(df_stocks['date'], df_stocks['masques'], df_stocks['seuil_masques'], 
-                where=(df_stocks['masques'] < df_stocks['seuil_masques']), 
-                color='red', alpha=0.2, label="Zone de commande")
-
-plt.legend(fontsize=10)
-plt.xticks(rotation=45)
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.savefig("graph4_stocks.png", dpi=150, bbox_inches='tight')
-plt.close()
-print("✅ graph4_stocks.png")
-
-print("\n" + "="*70)
-print("✅ GRAPHIQUES 1-4 GÉNÉRÉS AVEC SUCCÈS")
-print("="*70)
-print("\nFichiers créés:")
-print("  - graph1_admissions_epidemies.png")
-print("  - graph2_saturation_lits.png")
-print("  - graph3_tension_staff.png")
-print("  - graph4_stocks.png")
+print("\n📊 GRAPHIQUES STATISTIQUES :")
+print("   ✅ graph7_heatmap_admissions.png       - Patterns jour×mois")
+print("   ✅ graph10_correlation.png             - Gravité×Durée")

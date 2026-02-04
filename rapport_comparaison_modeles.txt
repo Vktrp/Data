@@ -4,50 +4,69 @@ RAPPORT DE COMPARAISON DES MODÈLES DE MACHINE LEARNING
 Hôpital Pitié-Salpêtrière - Prédiction des Admissions
 ======================================================================
 
-1. MODÈLES COMPARÉS
+CONFIGURATION
+======================================================================
+Données: 3988 jours après nettoyage
+Split: 3928 jours train / 60 jours test
+Features: 20 (simplifiées pour éviter overfitting)
+
+Features utilisées:
+  - Temporelles: jour_semaine, mois, trimestre, jour_annee
+  - Booléens: weekend, lundi
+  - Saisonnalité: sin/cos (mois, semaine, année)
+  - Lags: 1, 7, 14 jours
+  - Rolling means: 7, 14, 30 jours
+  - Tendance: rolling_7 - rolling_30
+  - Événements: is_event
+
+⚠️  IMPORTANT: Cette comparaison utilise un split train/test simple.
+    Pour une validation rigoureuse, voir model_prediction.py qui 
+    utilise une méthode walk-forward sur 10 semaines.
+
+1. RÉSULTATS DES MODÈLES
 ======================================================================
 
 
-XGBoost:
-  Description: Boosting avec gradient optimisé
-  MAE:  28.52 patients
-  RMSE: 34.17 patients
-  R²:   0.4038 (40.4% de variance expliquée)
-  MAPE: 8.46%
+Gradient Boosting:
+  MAE:  15.83 patients
+  RMSE: 19.71 patients
+  R²:   0.7563 (75.6% de variance expliquée)
+  MAPE: 5.17%
   
-  Overfitting: R²_train=1.0000, R²_test=0.4038
-               Différence: 0.5962
-               ⚠️ Risque de surapprentissage
+  Overfitting:
+    R² train: 0.9365
+    R² test:  0.7563
+    Écart:    0.1802 ⚠️ RISQUE
+
+XGBoost:
+  MAE:  15.34 patients
+  RMSE: 19.12 patients
+  R²:   0.7708 (77.1% de variance expliquée)
+  MAPE: 5.01%
+  
+  Overfitting:
+    R² train: 0.9364
+    R² test:  0.7708
+    Écart:    0.1656 ⚠️ RISQUE
 
 Random Forest:
-  Description: Ensemble d'arbres de décision
-  MAE:  34.18 patients
-  RMSE: 43.26 patients
-  R²:   0.0444 (4.4% de variance expliquée)
-  MAPE: 9.89%
+  MAE:  17.54 patients
+  RMSE: 23.82 patients
+  R²:   0.6443 (64.4% de variance expliquée)
+  MAPE: 5.81%
   
-  Overfitting: R²_train=0.9902, R²_test=0.0444
-               Différence: 0.9458
-               ⚠️ Risque de surapprentissage
-
-Gradient Boosting:
-  Description: Boosting séquentiel
-  MAE:  30.73 patients
-  RMSE: 38.04 patients
-  R²:   0.2612 (26.1% de variance expliquée)
-  MAPE: 9.28%
-  
-  Overfitting: R²_train=1.0000, R²_test=0.2612
-               Différence: 0.7388
-               ⚠️ Risque de surapprentissage
+  Overfitting:
+    R² train: 0.9338
+    R² test:  0.6443
+    Écart:    0.2894 ⚠️ RISQUE
 
 
 2. CLASSEMENT
 ======================================================================
 
-1. XGBoost              R² = 0.4038
-2. Gradient Boosting    R² = 0.2612
-3. Random Forest        R² = 0.0444
+1. XGBoost              R² = 0.7708 | MAE = 15.34
+2. Gradient Boosting    R² = 0.7563 | MAE = 15.83
+3. Random Forest        R² = 0.6443 | MAE = 17.54
 
 
 3. MODÈLE SÉLECTIONNÉ
@@ -56,26 +75,34 @@ Gradient Boosting:
 🏆 XGBoost
 
 Justification:
-  - Meilleur R² (0.4038)
-  - Erreur moyenne de ±28.52 patients
-  - MAPE de 8.46% (très faible)
-  
-Interprétation du R²:
-  Le modèle explique 40.4% de la variance des admissions.
-  Cela signifie que 40.4% des variations d'admissions sont
-  prédictibles grâce aux features temporelles et historiques.
+  - Meilleur R² sur données de test (0.7708)
+  - MAE acceptable (15.34 patients sur ~300/jour = 5.1%)
+  - MAPE faible (5.01%)
+  - Overfitting contrôlé (Δ R² = 0.166)
+
+⚠️  AVERTISSEMENT:
+Ces performances sont mesurées sur 60 jours de test consécutifs.
+Une validation walk-forward plus rigoureuse (model_prediction.py) 
+donnera des résultats plus conservateurs mais plus fiables:
+  - R² attendu: ~0.50-0.60 (au lieu de 0.77)
+  - MAE attendu: ~10-14 patients (au lieu de 15.34)
+
+Ceci est NORMAL car la validation walk-forward teste la prédiction
+sur 7 jours d'un coup, sur 10 périodes différentes, ce qui est plus
+difficile et plus représentatif de l'usage réel.
 
 4. RECOMMANDATION
 ======================================================================
 
-Le modèle XGBoost est recommandé pour la mise en production car:
-  ✅ Performance optimale (R² = 0.4038)
-  ✅ Erreur acceptable (MAE = 28.52 patients)
-  ✅ Pas de surapprentissage significatif
-  ✅ Généralise bien sur données de test
-
-Ce modèle sera utilisé pour les prédictions à 7 jours.
+Le modèle XGBoost est recommandé pour:
+  ✅ Comparaison initiale des algorithmes
+  ✅ Sélection du meilleur candidat
+  
+Mais pour la validation finale:
+  ✅ Utiliser model_prediction.py (walk-forward)
+  ✅ Présenter les résultats walk-forward à l'oral
+  ✅ Mentionner cette comparaison comme étape exploratoire
 
 ======================================================================
-Rapport généré le 2026-02-03 11:33:25
+Rapport généré le 2026-02-04 16:09:33
 ======================================================================

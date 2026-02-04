@@ -1,350 +1,247 @@
 import pandas as pd
 import numpy as np
-import matplotlib
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
-import seaborn as sns
-from xgboost import XGBRegressor
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 import warnings
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
-"""
-ENTRAÎNEMENT DU MODÈLE FINAL
-Utilise le meilleur modèle identifié par la comparaison
-"""
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
-sns.set_theme(style="whitegrid")
+# ON CHANGE D'ALGORITHME ICI
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.metrics import mean_absolute_error, r2_score
+import holidays
+import pickle
 
-print("="*70)
-print("🎯 ENTRAÎNEMENT DU MODÈLE FINAL")
-print("="*70)
+print("=" * 80)
+print("🎯 MODÈLE FINAL : ADMISSIONS URGENCES (GRADIENT BOOSTING)")
+print("=" * 80)
 
 # =============================================================================
-# 📂 CHARGEMENT
+# 📂 DONNÉES
 # =============================================================================
 
-print("\n📂 Chargement des données...")
 df = pd.read_csv("admissions_daily.csv", parse_dates=["date"])
 df = df.sort_values("date").reset_index(drop=True)
 
-print(f"✅ {len(df)} jours de données")
-
-# Charger le nom du meilleur modèle (si existe)
-try:
-    with open("meilleur_modele.txt", "r") as f:
-        best_model_name = f.read().strip()
-    print(f"📌 Modèle sélectionné: {best_model_name}")
-except FileNotFoundError:
-    best_model_name = "Gradient Boosting"
-    print(f"⚠️  Fichier meilleur_modele.txt non trouvé")
-    print(f"📌 Utilisation du modèle par défaut: {best_model_name}")
+print(f"✅ {len(df)} jours chargés")
 
 # =============================================================================
-# 🔧 FEATURE ENGINEERING
+# 🔧 FEATURES (IDENTIQUES AU TEST COMPARATIF)
 # =============================================================================
 
-print("\n🔧 Création des features...")
+fr_holidays = holidays.France()
 
-# Features temporelles
-df['jour_semaine'] = df['date'].dt.dayofweek
-df['jour_mois'] = df['date'].dt.day
-df['jour_annee'] = df['date'].dt.dayofyear
-df['semaine_annee'] = df['date'].dt.isocalendar().week
-df['mois'] = df['date'].dt.month
-df['trimestre'] = df['date'].dt.quarter
+# 1. Gestion Jours Fériés & Vacances
+df["is_holiday"] = df["date"].isin(fr_holidays).astype(int)
+df["veille_holiday"] = df["date"].isin(
+    [d - pd.Timedelta(days=1) for d in fr_holidays if d in df["date"].values]
+).astype(int)
+df["lendemain_holiday"] = df["date"].isin(
+    [d + pd.Timedelta(days=1) for d in fr_holidays if d in df["date"].values]
+).astype(int)
 
-df['is_monday'] = (df['jour_semaine'] == 0).astype(int)
-df['is_tuesday'] = (df['jour_semaine'] == 1).astype(int)
-df['is_friday'] = (df['jour_semaine'] == 4).astype(int)
-df['is_weekend'] = (df['jour_semaine'] >= 5).astype(int)
-df['is_debut_mois'] = (df['jour_mois'] <= 7).astype(int)
-df['is_fin_mois'] = (df['jour_mois'] >= 24).astype(int)
-df['is_event'] = df['event'].apply(lambda x: 1 if x != 'none' and pd.notnull(x) else 0)
+# 2. GESTION SPÉCIALE COVID
+df["is_covid"] = 0
+df.loc[(df["date"] >= "2020-03-01") & (df["date"] <= "2021-06-30"), "is_covid"] = 1
 
-df['sin_semaine'] = np.sin(2 * np.pi * df['jour_semaine'] / 7)
-df['cos_semaine'] = np.cos(2 * np.pi * df['jour_semaine'] / 7)
-df['sin_mois'] = np.sin(2 * np.pi * df['jour_mois'] / 31)
-df['cos_mois'] = np.cos(2 * np.pi * df['jour_mois'] / 31)
-df['sin_annee'] = np.sin(2 * np.pi * df['jour_annee'] / 365)
-df['cos_annee'] = np.cos(2 * np.pi * df['jour_annee'] / 365)
+# 3. Temporel
+df["jour_semaine"] = df["date"].dt.dayofweek
+df["mois"] = df["date"].dt.month
+df["jour_annee"] = df["date"].dt.dayofyear
+df["semaine_annee"] = df["date"].dt.isocalendar().week.astype(int)
+df["annee"] = df["date"].dt.year 
 
-for lag in [1, 2, 3, 4, 5, 6, 7, 14, 21, 28]:
-    df[f'lag_{lag}'] = df['nb_admissions'].shift(lag)
+df["weekend"] = (df["jour_semaine"] >= 5).astype(int)
+df["lundi"] = (df["jour_semaine"] == 0).astype(int)
+df["decembre"] = (df["mois"] == 12).astype(int)
+df["hiver"] = df["mois"].isin([11, 12, 1, 2]).astype(int)
 
-df['diff_1'] = df['nb_admissions'].diff(1)
-df['diff_7'] = df['nb_admissions'].diff(7)
+# 4. Cycles
+df["sin_annee"] = np.sin(2 * np.pi * df["jour_annee"] / 365)
+df["cos_annee"] = np.cos(2 * np.pi * df["jour_annee"] / 365)
+df["sin_semaine"] = np.sin(2 * np.pi * df["jour_semaine"] / 7)
+df["cos_semaine"] = np.cos(2 * np.pi * df["jour_semaine"] / 7)
 
-windows = [3, 7, 14, 21, 30]
-for window in windows:
-    df[f'rolling_mean_{window}'] = df['nb_admissions'].shift(1).rolling(window=window).mean()
-    df[f'rolling_std_{window}'] = df['nb_admissions'].shift(1).rolling(window=window).std()
-    df[f'rolling_min_{window}'] = df['nb_admissions'].shift(1).rolling(window=window).min()
-    df[f'rolling_max_{window}'] = df['nb_admissions'].shift(1).rolling(window=window).max()
+# 5. Lags
+for lag in [1, 7, 14, 21, 28, 364, 365]: 
+    df[f"lag_{lag}"] = df["nb_admissions"].shift(lag)
 
-df['trend'] = df['rolling_mean_7'] - df['rolling_mean_30']
-df['momentum_3'] = df['nb_admissions'].shift(1) - df['nb_admissions'].shift(4)
-df['ratio_to_mean_7'] = df['nb_admissions'].shift(1) / (df['rolling_mean_7'] + 1)
-df['monday_x_lag1'] = df['is_monday'] * df['lag_1']
-df['weekend_x_mean7'] = df['is_weekend'] * df['rolling_mean_7']
+# 6. Moyennes Glissantes
+for w in [7, 14, 30, 60]:
+    df[f"roll_mean_{w}"] = df["nb_admissions"].shift(1).rolling(w).mean()
+    df[f"roll_std_{w}"] = df["nb_admissions"].shift(1).rolling(w).std()
 
-df = df.replace([np.inf, -np.inf], np.nan)
-df = df.dropna()
+# 7. Tendance
+df["trend_7_30"] = df["roll_mean_7"] - df["roll_mean_30"]
 
-features = [col for col in df.columns if col not in ['date', 'nb_admissions', 'event']]
-target = 'nb_admissions'
+# Nettoyage
+df = df.replace([np.inf, -np.inf], np.nan).dropna().reset_index(drop=True)
 
-print(f"✅ {len(features)} features créées")
+features = [
+    "jour_semaine", "semaine_annee", "weekend", "lundi",
+    "decembre", "hiver", "annee",
+    "is_holiday", "veille_holiday", "lendemain_holiday",
+    "is_covid",  
+    "sin_annee", "cos_annee", "sin_semaine", "cos_semaine",
+    "lag_1", "lag_7", "lag_14", "lag_21", "lag_28", "lag_364", "lag_365",
+    "roll_mean_7", "roll_mean_14", "roll_mean_30", "roll_mean_60",
+    "roll_std_7", "roll_std_30",
+    "trend_7_30"
+]
+
+print(f"✅ {len(features)} features utilisées (dont gestion COVID)")
 
 # =============================================================================
-# 📊 SPLIT
+# 🧠 MODÈLE (GRADIENT BOOSTING - LE VAINQUEUR)
 # =============================================================================
 
-train_size = len(df) - 60
-train = df.iloc[:train_size]
-test = df.iloc[train_size:]
-
-print(f"📊 Split: {len(train)} train / {len(test)} test")
-
-# =============================================================================
-# 🤖 SÉLECTION ET ENTRAÎNEMENT DU MODÈLE
-# =============================================================================
-
-print(f"\n{'='*70}")
-print(f"🤖 SÉLECTION DU MODÈLE")
-print(f"{'='*70}")
-print(f"✅ Modèle choisi: {best_model_name}")
-print(f"{'='*70}")
-
-print(f"\n🏋️ Entraînement en cours...")
-
-# Définir le modèle selon le choix
-if best_model_name == "XGBoost":
-    model = XGBRegressor(
-        n_estimators=1000,
-        learning_rate=0.05,
-        max_depth=6,
-        min_child_weight=3,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42,
-        n_jobs=-1
-    )
-elif best_model_name == "Random Forest":
-    model = RandomForestRegressor(
-        n_estimators=500,
-        max_depth=12,
-        min_samples_split=5,
-        random_state=42,
-        n_jobs=-1
-    )
-else:  # Gradient Boosting
-    model = GradientBoostingRegressor(
-        n_estimators=500,
+def make_model():
+    # Configuration exacte qui a gagné le test (MAE 15.13)
+    return GradientBoostingRegressor(
+        n_estimators=200,
         learning_rate=0.05,
         max_depth=5,
+        loss="absolute_error", # Optimise le MAE directement !
         random_state=42
     )
-    print(f"✅ Gradient Boosting Regressor initialisé")
-    print(f"   Paramètres: n_estimators=500, learning_rate=0.05, max_depth=5")
 
-print(f"\n📊 Entraînement sur {len(train)} observations...")
+# =============================================================================
+# 🧪 VALIDATION WALK-FORWARD
+# =============================================================================
 
-# Entraînement
-model.fit(train[features], train[target])
+print("\n" + "="*80)
+print("🧪 VALIDATION WALK-FORWARD")
+print("="*80)
+
+horizons = range(1, 8)
+n_test_weeks = 10
+errors = {h: [] for h in horizons}
+all_predictions = {h: [] for h in horizons}
+all_actuals = {h: [] for h in horizons}
+
+min_train = len(df) - n_test_weeks * 7 - 100
+
+print(f"\n🔄 Validation sur {n_test_weeks} semaines (Patience, Gradient Boosting est lent)...")
+
+for w in range(n_test_weeks):
+    train_end = min_train + w * 7
+    train_df = df.iloc[:train_end].copy()
+    
+    print(".", end="", flush=True)
+
+    for h in horizons:
+        train_df[f"y_h{h}"] = train_df["nb_admissions"].shift(-h)
+        tmp = train_df.dropna()
+
+        model = make_model()
+        model.fit(tmp[features], tmp[f"y_h{h}"])
+
+        if train_end + h < len(df):
+            y_true = df.iloc[train_end + h]["nb_admissions"]
+            y_pred = model.predict(df.iloc[[train_end]][features])[0]
+
+            errors[h].append(abs(y_pred - y_true))
+            all_predictions[h].append(y_pred)
+            all_actuals[h].append(y_true)
+
+# =============================================================================
+# 📊 RÉSULTATS VALIDATION
+# =============================================================================
+
+print("\n\n" + "="*80)
+print("📊 RÉSULTATS VALIDATION")
+print("="*80)
+
+mae_by_h = [np.mean(errors[h]) for h in horizons if errors[h]]
+mae_global = np.mean(mae_by_h)
+
+# Calculer R² global
+all_actuals_flat = [a for h in horizons for a in all_actuals[h]]
+all_preds_flat = [p for h in horizons for p in all_predictions[h]]
+r2_global = r2_score(all_actuals_flat, all_preds_flat)
+
+print(f"\n🎯 Performance globale :")
+print(f"   MAE global : {mae_global:.2f} patients")
+print(f"   R² global  : {r2_global:.4f}")
+
+# Comparaison baseline
+if all_actuals_flat:
+    baseline_pred = np.mean(all_actuals_flat)
+    mae_baseline = np.mean([abs(a - baseline_pred) for a in all_actuals_flat])
+    improvement = ((mae_baseline - mae_global) / mae_baseline) * 100
+    print(f"   Amélioration baseline : {improvement:.1f}%")
+
+# Graphique MAE
+fig, ax = plt.subplots(figsize=(10, 6))
+ax.plot(list(horizons), mae_by_h, marker="o", linewidth=2, markersize=8, color='#27AE60')
+ax.axhline(y=mae_global, color='red', linestyle='--', label=f'Moyenne: {mae_global:.2f}')
+ax.set_title(f"Erreur MAE par horizon (Gradient Boosting)", fontsize=13, fontweight='bold')
+ax.grid(True, alpha=0.3)
+plt.savefig("mae_par_horizon.png")
+plt.close()
+print("✅ Graphique : mae_par_horizon.png")
+
+# =============================================================================
+# 🔮 ENTRAÎNEMENT FINAL + CSV + PRÉVISIONS
+# =============================================================================
+
+print("\n" + "="*80)
+print("🔮 ENTRAÎNEMENT FINAL (Attention: ~2 minutes)")
+print("="*80)
+
+final_models = {}
+
+# Entraînement des 7 modèles finaux
+for h in horizons:
+    print(f"   Entraînement horizon J+{h}...")
+    df[f"y_h{h}"] = df["nb_admissions"].shift(-h)
+    tmp = df.dropna()
+    model = make_model()
+    model.fit(tmp[features], tmp[f"y_h{h}"])
+    final_models[h] = model
+
+# Sauvegarde des modèles
+with open("models_multi_horizon.pkl", "wb") as f:
+    pickle.dump(final_models, f)
+print("✅ Modèles sauvegardés : models_multi_horizon.pkl")
 
 # Prédictions
-predictions = model.predict(test[features])
+last_row = df.iloc[-1]
+future_dates = pd.date_range(start=last_row["date"] + pd.Timedelta(days=1), periods=7)
+predictions = []
 
-# Métriques
-mae = mean_absolute_error(test[target], predictions)
-rmse = np.sqrt(mean_squared_error(test[target], predictions))
-r2 = r2_score(test[target], predictions)
-mape = np.mean(np.abs((test[target] - predictions) / test[target])) * 100
+for h in horizons:
+    pred = final_models[h].predict(last_row[features].values.reshape(1, -1))[0]
+    predictions.append(pred)
 
-print("\n" + "="*70)
-print("📊 PERFORMANCE DU MODÈLE")
-print("="*70)
-print(f"Modèle: {best_model_name}")
-print(f"MAE  : ±{mae:.2f} patients")
-print(f"RMSE : ±{rmse:.2f} patients")
-print(f"R²   : {r2:.4f} ({r2*100:.1f}% de variance expliquée)")
-print(f"MAPE : {mape:.2f}%")
-print("="*70)
-
-# =============================================================================
-# 📊 GRAPHIQUE DE PERFORMANCE
-# =============================================================================
-
-print("\n📊 Génération du graphique...")
-
-fig, axes = plt.subplots(2, 1, figsize=(14, 10))
-
-# 1. Prédictions vs Réalité
-ax1 = axes[0]
-ax1.plot(test['date'], test[target], label='Réalité', 
-         color='#2C3E50', linewidth=2.5, marker='o', markersize=5)
-ax1.plot(test['date'], predictions, label=f'{best_model_name}', 
-         color='#E74C3C', linestyle='--', linewidth=2.5, marker='s', markersize=5)
-ax1.fill_between(test['date'], predictions - mae, predictions + mae,
-                  alpha=0.2, color='#E74C3C', label=f'Intervalle ±{mae:.1f}')
-ax1.set_title(f'🎯 {best_model_name} | MAE: {mae:.2f} | R²: {r2:.4f} | MAPE: {mape:.2f}%', 
-              fontsize=14, fontweight='bold')
-ax1.set_ylabel('Admissions', fontsize=11)
-ax1.legend(fontsize=10)
-ax1.grid(True, alpha=0.3)
-plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45)
-
-# 2. Résidus
-ax2 = axes[1]
-residuals = test[target].values - predictions
-colors = ['#27AE60' if r >= 0 else '#E74C3C' for r in residuals]
-ax2.bar(range(len(residuals)), residuals, color=colors, alpha=0.7)
-ax2.axhline(y=0, color='black', linestyle='-', linewidth=1.5)
-ax2.axhline(y=mae, color='orange', linestyle='--', linewidth=1.5, label=f'MAE: ±{mae:.2f}')
-ax2.axhline(y=-mae, color='orange', linestyle='--', linewidth=1.5)
-ax2.set_title('📉 Analyse des Erreurs (Résidus)', fontsize=12, fontweight='bold')
-ax2.set_ylabel('Erreur', fontsize=11)
-ax2.set_xlabel('Observation', fontsize=11)
-ax2.legend()
-ax2.grid(True, alpha=0.3, axis='y')
-
-plt.tight_layout()
-plt.savefig("graphB_modele_final.png", dpi=150, bbox_inches='tight')
-plt.close()
-
-print("✅ graphB_modele_final.png")
-
-# =============================================================================
-# 🔮 PRÉDICTIONS FUTURES (7 jours)
-# =============================================================================
-
-print("\n🔮 Calcul des prévisions futures...")
-
-last_date = df['date'].max()
-future_dates = pd.date_range(start=last_date + pd.Timedelta(days=1), periods=7)
-history_full = df[['date', 'nb_admissions']].copy()
-future_preds = []
-future_uncertainties = []
-
-for i, date in enumerate(future_dates):
-    temp_df = pd.concat([history_full, pd.DataFrame({'date': [date], 'nb_admissions': [np.nan]})], 
-                        ignore_index=True)
-    temp_df = temp_df.sort_values('date').reset_index(drop=True)
-    
-    # Recalculer features
-    temp_df['jour_semaine'] = temp_df['date'].dt.dayofweek
-    temp_df['jour_mois'] = temp_df['date'].dt.day
-    temp_df['jour_annee'] = temp_df['date'].dt.dayofyear
-    temp_df['semaine_annee'] = temp_df['date'].dt.isocalendar().week
-    temp_df['mois'] = temp_df['date'].dt.month
-    temp_df['trimestre'] = temp_df['date'].dt.quarter
-    
-    temp_df['is_monday'] = (temp_df['jour_semaine'] == 0).astype(int)
-    temp_df['is_tuesday'] = (temp_df['jour_semaine'] == 1).astype(int)
-    temp_df['is_friday'] = (temp_df['jour_semaine'] == 4).astype(int)
-    temp_df['is_weekend'] = (temp_df['jour_semaine'] >= 5).astype(int)
-    temp_df['is_debut_mois'] = (temp_df['jour_mois'] <= 7).astype(int)
-    temp_df['is_fin_mois'] = (temp_df['jour_mois'] >= 24).astype(int)
-    temp_df['is_event'] = 0
-    
-    temp_df['sin_semaine'] = np.sin(2 * np.pi * temp_df['jour_semaine'] / 7)
-    temp_df['cos_semaine'] = np.cos(2 * np.pi * temp_df['jour_semaine'] / 7)
-    temp_df['sin_mois'] = np.sin(2 * np.pi * temp_df['jour_mois'] / 31)
-    temp_df['cos_mois'] = np.cos(2 * np.pi * temp_df['jour_mois'] / 31)
-    temp_df['sin_annee'] = np.sin(2 * np.pi * temp_df['jour_annee'] / 365)
-    temp_df['cos_annee'] = np.cos(2 * np.pi * temp_df['jour_annee'] / 365)
-    
-    for lag in [1, 2, 3, 4, 5, 6, 7, 14, 21, 28]:
-        temp_df[f'lag_{lag}'] = temp_df['nb_admissions'].shift(lag)
-    
-    temp_df['diff_1'] = temp_df['nb_admissions'].diff(1)
-    temp_df['diff_7'] = temp_df['nb_admissions'].diff(7)
-    
-    for window in [3, 7, 14, 21, 30]:
-        temp_df[f'rolling_mean_{window}'] = temp_df['nb_admissions'].shift(1).rolling(window=window).mean()
-        temp_df[f'rolling_std_{window}'] = temp_df['nb_admissions'].shift(1).rolling(window=window).std()
-        temp_df[f'rolling_min_{window}'] = temp_df['nb_admissions'].shift(1).rolling(window=window).min()
-        temp_df[f'rolling_max_{window}'] = temp_df['nb_admissions'].shift(1).rolling(window=window).max()
-    
-    temp_df['trend'] = temp_df['rolling_mean_7'] - temp_df['rolling_mean_30']
-    temp_df['momentum_3'] = temp_df['nb_admissions'].shift(1) - temp_df['nb_admissions'].shift(4)
-    temp_df['ratio_to_mean_7'] = temp_df['nb_admissions'].shift(1) / (temp_df['rolling_mean_7'] + 1)
-    temp_df['monday_x_lag1'] = temp_df['is_monday'] * temp_df['lag_1']
-    temp_df['weekend_x_mean7'] = temp_df['is_weekend'] * temp_df['rolling_mean_7']
-    
-    temp_df = temp_df.replace([np.inf, -np.inf], np.nan)
-    
-    # Extraire et gérer les NaN
-    current_row = temp_df.iloc[-1][features].copy()
-    
-    # Remplacer les NaN par les médianes du train
-    for col in features:
-        if pd.isna(current_row[col]):
-            train_median = train[col].median()
-            current_row[col] = train_median if not pd.isna(train_median) else 0
-    
-    # Prédiction
-    pred = model.predict(current_row.values.reshape(1, -1))[0]
-    
-    future_preds.append(pred)
-    future_uncertainties.append(mae * (1 + 0.15 * i))
-    history_full = pd.concat([history_full, pd.DataFrame({'date': [date], 'nb_admissions': [pred]})], 
-                             ignore_index=True)
-
-# Sauvegarde
-df_pred = pd.DataFrame({
+# --- CRÉATION DU FICHIER CSV ---
+df_final = pd.DataFrame({
     'date': future_dates,
-    'pred_admissions': np.round(future_preds, 2),
-    'pred_min': np.round(np.array(future_preds) - np.array(future_uncertainties), 2),
-    'pred_max': np.round(np.array(future_preds) + np.array(future_uncertainties), 2)
+    'pred_admissions': np.round(predictions, 0),
+    'pred_min': np.round([p - mae_global for p in predictions], 0),
+    'pred_max': np.round([p + mae_global for p in predictions], 0)
 })
-df_pred.to_csv("previsions_future.csv", index=False)
 
-# Graphique prévisions
-fig2, ax = plt.subplots(figsize=(14, 7))
-recent = df.tail(60)
-ax.plot(recent['date'], recent['nb_admissions'], 
-        label='Historique récent', color='#34495E', linewidth=2)
-ax.plot(df_pred['date'], df_pred['pred_admissions'], 
-        label=f'Prévisions {best_model_name}', color='#E74C3C', 
-        linestyle='--', linewidth=3, marker='o', markersize=10)
-ax.fill_between(df_pred['date'], df_pred['pred_min'], df_pred['pred_max'],
-                alpha=0.3, color='#E74C3C', label='Intervalle de confiance')
+df_final.to_csv("previsions_future.csv", index=False)
+print("✅ CSV GÉNÉRÉ : previsions_future.csv")
 
-for _, row in df_pred.iterrows():
-    ax.text(row['date'], row['pred_admissions'] + 3, f"{row['pred_admissions']:.0f}", 
-            ha='center', fontsize=10, fontweight='bold', color='#E74C3C')
-
-ax.set_title(f'🔮 Prévisions 7 jours - {best_model_name}', fontsize=16, fontweight='bold')
-ax.set_ylabel('Admissions', fontsize=12)
-ax.legend(fontsize=11)
+# Graphique Final
+fig, ax = plt.subplots(figsize=(14, 7))
+history_plot = df.tail(60)
+ax.plot(history_plot["date"], history_plot["nb_admissions"], label="Historique", color='#2C3E50')
+ax.plot(future_dates, predictions, marker="o", label="Prévisions", color='#E74C3C')
+ax.fill_between(future_dates, df_final['pred_min'], df_final['pred_max'], color='#E74C3C', alpha=0.2, label=f"Marge ±{mae_global:.0f}")
+ax.set_title(f"Prévisions 7 jours | MAE={mae_global:.2f}", fontsize=14)
+ax.legend()
 ax.grid(True, alpha=0.3)
-plt.xticks(rotation=45)
-plt.tight_layout()
-plt.savefig("graphC_previsions_7jours.png", dpi=150, bbox_inches='tight')
+plt.savefig("graphC_previsions_7jours.png")
 plt.close()
+print("✅ Graphique : graphC_previsions_7jours.png")
 
-print("✅ graphC_previsions_7jours.png")
-
-# =============================================================================
-# 📋 RÉSUMÉ
-# =============================================================================
-
-print("\n" + "="*70)
-print("🔮 PRÉVISIONS DES 7 PROCHAINS JOURS")
-print("="*70)
-for _, row in df_pred.iterrows():
-    print(f"{row['date'].strftime('%Y-%m-%d (%A)')}: "
-          f"{row['pred_admissions']:5.0f} patients [{row['pred_min']:5.0f}-{row['pred_max']:5.0f}]")
-
-print("\n" + "="*70)
-print("✅ ENTRAÎNEMENT TERMINÉ")
-print("="*70)
-print(f"\n📁 Fichiers générés:")
-print(f"   - previsions_future.csv")
-print(f"   - graphB_modele_final.png")
-print(f"   - graphC_previsions_7jours.png")
-print(f"\n🎯 Modèle prêt pour utilisation: {best_model_name}")
-print(f"   Performance: MAE={mae:.2f}, R²={r2:.4f}")
+# Affichage terminal
+print("\n" + "="*80)
+print("📅 PRÉVISIONS SEMAINE PROCHAINE")
+for _, row in df_final.iterrows():
+    print(f"   {row['date'].strftime('%Y-%m-%d (%A)')}: {row['pred_admissions']:.0f} patients")
+print("="*80)

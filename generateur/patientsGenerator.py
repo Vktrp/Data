@@ -15,7 +15,7 @@ END   = "2024-12-31"
 BASE_ADM_PER_DAY = 220
 
 # Facteurs saisonniers
-WINTER_FACTOR  = 1.10   # Jan/Feb/Dec
+WINTER_FACTOR  = 1.25   # Jan/Feb/Dec
 SUMMER_FACTOR  = 0.85   # Jul/Aug
 WEEKEND_FACTOR = 0.90   # Sam/Dim
 
@@ -50,8 +50,8 @@ def get_event(date: pd.Timestamp) -> str:
 # Multiplicateurs d'admissions par événement
 EVENT_ADM_MULT = {
     "none": 1.00,
-    "grippe": 1.15,
-    "covid": 1.20,
+    "grippe": 1.25,
+    "covid": 1.35,
     "canicule": 1.10,
 }
 
@@ -66,7 +66,7 @@ grav_p_normal = [0.22, 0.30, 0.28, 0.15, 0.05]
 grav_p_event  = [0.10, 0.22, 0.33, 0.23, 0.12]  # + grave en période d'event
 
 # Durée de séjour par gravité (moyennes approx en jours)
-LOS_MEAN = {1: 1.5, 2: 2.5, 3: 4.0, 4: 6.0, 5: 9.0}
+LOS_MEAN = {1: 2.0, 2: 3.0, 3: 5.0, 4: 8.0, 5: 12.0}
 LOS_MAX = 30  # plafond simple
 
 # ----------------------------

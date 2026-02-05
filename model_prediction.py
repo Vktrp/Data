@@ -18,7 +18,7 @@ print("🎯 MODÈLE FINAL : ADMISSIONS URGENCES (GRADIENT BOOSTING)")
 print("=" * 80)
 
 # =============================================================================
-# 📂 DONNÉES
+# DONNÉES
 # =============================================================================
 
 df = pd.read_csv("admissions_daily.csv", parse_dates=["date"])
@@ -27,7 +27,7 @@ df = df.sort_values("date").reset_index(drop=True)
 print(f"✅ {len(df)} jours chargés")
 
 # =============================================================================
-# 🔧 FEATURES (IDENTIQUES AU TEST COMPARATIF)
+# FEATURES (IDENTIQUES AU TEST COMPARATIF)
 # =============================================================================
 
 fr_holidays = holidays.France()
@@ -93,7 +93,7 @@ features = [
 print(f"✅ {len(features)} features utilisées (dont gestion COVID)")
 
 # =============================================================================
-# 🧠 MODÈLE (GRADIENT BOOSTING - LE VAINQUEUR)
+# MODÈLE (GRADIENT BOOSTING - LE VAINQUEUR)
 # =============================================================================
 
 def make_model():
@@ -107,7 +107,7 @@ def make_model():
     )
 
 # =============================================================================
-# 🧪 VALIDATION WALK-FORWARD
+# VALIDATION WALK-FORWARD
 # =============================================================================
 
 print("\n" + "="*80)
@@ -146,7 +146,7 @@ for w in range(n_test_weeks):
             all_actuals[h].append(y_true)
 
 # =============================================================================
-# 📊 RÉSULTATS VALIDATION
+# RÉSULTATS VALIDATION
 # =============================================================================
 
 print("\n\n" + "="*80)
@@ -183,7 +183,7 @@ plt.close()
 print("✅ Graphique : mae_par_horizon.png")
 
 # =============================================================================
-# 🔮 ENTRAÎNEMENT FINAL + CSV + PRÉVISIONS
+# ENTRAÎNEMENT FINAL + CSV + PRÉVISIONS
 # =============================================================================
 
 print("\n" + "="*80)

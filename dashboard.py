@@ -64,7 +64,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("Pitié-Salpêtrière • Dashboard IA")
+st.title("Pitié-Salpêtrière • Dashboard")
 
 # =============================================================================
 # CHARGEMENT
@@ -92,10 +92,6 @@ def load_data():
 df_adm, df_beds, df_pred, df_stocks, df_staff = load_data()
 
 ai_models = load_ai_model()
-if ai_models:
-    st.sidebar.success("✅ Modèle IA chargé")
-else:
-    st.sidebar.warning("⚠️ Modèle IA non trouvé")
 
 # =============================================================================
 # SIDEBAR

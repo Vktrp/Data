@@ -115,7 +115,7 @@ print("🧪 VALIDATION WALK-FORWARD")
 print("="*80)
 
 horizons = range(1, 8)
-n_test_weeks = 10
+n_test_weeks = 52
 errors = {h: [] for h in horizons}
 all_predictions = {h: [] for h in horizons}
 all_actuals = {h: [] for h in horizons}

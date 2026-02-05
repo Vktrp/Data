@@ -1,7 +1,3 @@
-# =============================================================================
-# ⚔️ BATTLE ROYALE : COMPARAISON WALK-FORWARD (HONNÊTE)
-# =============================================================================
-
 import pandas as pd
 import numpy as np
 import warnings
@@ -17,12 +13,9 @@ from sklearn.metrics import mean_absolute_error, r2_score
 import holidays
 import time
 
-print("=" * 80)
-print("⚔️ COMPARAISON DES MODÈLES (MÉTHODOLOGIE WALK-FORWARD)")
-print("=" * 80)
 
 # =============================================================================
-# 1. PRÉPARATION DES DONNÉES (IDENTIQUE AU FINAL)
+# 1. PRÉPARATION DES DONNÉES
 # =============================================================================
 
 df = pd.read_csv("admissions_daily.csv", parse_dates=["date"])
@@ -76,7 +69,6 @@ features = [
     "roll_std_7", "roll_std_30", "trend_7_30"
 ]
 
-print(f"✅ Données prêtes : {len(df)} jours | {len(features)} features")
 
 # =============================================================================
 # 2. CONFIGURATION DES COMBATTANTS
@@ -101,7 +93,6 @@ models_config = {
 # =============================================================================
 # 3. LA COMPÉTITION (WALK-FORWARD SUR 5 SEMAINES)
 # =============================================================================
-# On réduit à 5 semaines pour que le test ne dure pas 1 heure, c'est suffisant pour comparer.
 
 n_weeks = 5
 horizons = range(1, 8) # J+1 à J+7
@@ -124,7 +115,6 @@ for name, model_template in models_config.items():
         
         # Pour chaque horizon, on entraîne un modèle spécifique (Multi-Horizon Direct)
         for h in horizons:
-            # Création de la target décalée
             train_df[f"y_h{h}"] = train_df["nb_admissions"].shift(-h)
             tmp = train_df.dropna()
             
@@ -155,12 +145,9 @@ for name, model_template in models_config.items():
     print(f" Terminé ({duration:.1f}s) -> MAE: {mae:.2f}")
 
 # =============================================================================
-# 4. LE PODIUM
+# 4. RESULTAT
 # =============================================================================
 
-print("\n" + "="*80)
-print("🏆 RÉSULTATS DE LA COMPÉTITION")
-print("="*80)
 
 # Tri par MAE croissant (le plus petit gagne)
 sorted_results = dict(sorted(results.items(), key=lambda item: item[1]['MAE']))
@@ -172,8 +159,6 @@ for rank, (name, metrics) in enumerate(sorted_results.items(), 1):
     print(f"{rank:<6} {name:<25} {metrics['MAE']:<15.2f} {metrics['Time']:.1f}s")
 
 winner = list(sorted_results.keys())[0]
-print("-" * 60)
-print(f"🎉 Le vainqueur est : {winner.upper()}")
 
 # --- SAUVEGARDE DU MEILLEUR MODÈLE ---
 with open("meilleur_modele.txt", "w") as f:

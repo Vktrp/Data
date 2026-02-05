@@ -2,21 +2,17 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
 from datetime import datetime
 import os
 from PIL import Image
 from ai_prediction_functions import load_ai_model, predict_next_7_days_with_ai
 
 
-"""
-DASHBOARD COMPLET - TOUT EN ONGLETS
-Style Dark + Simulation + Graphiques Analytiques
-"""
-
 st.set_page_config(
     page_title="Pitié-Salpêtrière", 
     layout="wide",
-    page_icon="🏥"
 )
 
 # Configuration matplotlib dark
@@ -30,7 +26,7 @@ plt.rcParams.update({
     'axes.edgecolor': '#30363D'
 })
 
-# CSS Personnalisé (Dark Mode)
+# CSS Personnalisé
 st.markdown("""
     <style>
     .stApp { background-color: #0E1117; color: #FAFAFA; }
@@ -68,7 +64,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-st.title("🏥 Pitié-Salpêtrière • Dashboard IA")
+st.title("Pitié-Salpêtrière • Dashboard IA")
 
 # =============================================================================
 # CHARGEMENT
@@ -77,15 +73,23 @@ st.title("🏥 Pitié-Salpêtrière • Dashboard IA")
 @st.cache_data
 def load_data():
     try:
+        # On charge tout
         adm = pd.read_csv("admissions_daily.csv", parse_dates=["date"])
         beds = pd.read_csv("beds.csv", parse_dates=["date"])
         pred = pd.read_csv("previsions_future.csv", parse_dates=["date"])
-        return adm, beds, pred
+        
+        # Nouveaux fichiers
+        stocks = pd.read_csv("stocks.csv", parse_dates=["date"])
+        staff = pd.read_csv("staff.csv", parse_dates=["date"])
+        
+        
+        return adm, beds, pred, stocks, staff
     except FileNotFoundError as e:
         st.error(f"Fichier manquant: {e}")
         st.stop()
 
-df_adm, df_beds, df_pred = load_data()
+# On récupère les 5 DataFrames
+df_adm, df_beds, df_pred, df_stocks, df_staff = load_data()
 
 ai_models = load_ai_model()
 if ai_models:
@@ -94,10 +98,9 @@ else:
     st.sidebar.warning("⚠️ Modèle IA non trouvé")
 
 # =============================================================================
-# SIDEBAR (Paramètres seulement - SANS nb_jours)
+# SIDEBAR
 # =============================================================================
 
-st.sidebar.header("⚙️ Paramètres Globaux")
 
 mode = st.sidebar.radio(
     "Capacité:",
@@ -107,9 +110,9 @@ mode = st.sidebar.radio(
 capacite = 2500 if "Plan Blanc" in mode else 1800
 
 if "Plan Blanc" in mode:
-    st.sidebar.error("🚨 **PLAN BLANC ACTIF**")
+    st.sidebar.error("**PLAN BLANC ACTIF**")
 else:
-    st.sidebar.success("✅ Normal")
+    st.sidebar.success("Normal")
 
 show_confidence = st.sidebar.checkbox("Intervalles confiance", value=True)
 
@@ -118,15 +121,15 @@ show_confidence = st.sidebar.checkbox("Intervalles confiance", value=True)
 # =============================================================================
 
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "🏠 Vue d'Ensemble",
-    "📊 Admissions & Lits",
-    "🔮 Prévisions IA",
-    "⚡ Simulation & Recommandations",
-    "📈 Analyses Opérationnelles",
-    "🔬 Analyses Statistiques"
+    "Vue d'Ensemble",
+    "Admissions & Lits",
+    "Prévisions IA",
+    "Simulation & Recommandations",
+    "Analyses Opérationnelles",
+    "Analyses Statistiques"
 ])
 
-# Calculs KPI (utilisés partout)
+# Calculs KPI
 last_day_adm = int(df_adm.iloc[-1]['nb_admissions'])
 last_day_beds = int(df_beds.iloc[-1]['lits_occupees'])
 lits_dispo = capacite - last_day_beds
@@ -142,7 +145,7 @@ delta_adm = last_day_adm - adm_j7
 # =============================================================================
 
 with tab1:
-    st.header("📊 Indicateurs Clés")
+    st.header("Indicateurs Clés")
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -166,7 +169,7 @@ with tab1:
     st.markdown("---")
     
     # Alertes
-    st.subheader("🚨 Alertes")
+    st.subheader("Alertes")
     
     if lits_dispo < 100:
         st.error(f"🔴 **CRITIQUE** : {lits_dispo} lits disponibles → Plan Blanc immédiat")
@@ -175,103 +178,121 @@ with tab1:
     elif taux_occupation > 70:
         st.info(f"🟡 **SURVEILLANCE** : {taux_occupation:.0f}% occupation")
     else:
-        st.success("✅ Situation normale")
+        st.success("Situation normale")
     
     if pred_j1 > last_day_adm * 1.2:
-        st.warning(f"📈 **HAUSSE PRÉVUE** : +{((pred_j1/last_day_adm - 1) * 100):.0f}% demain")
+        st.warning(f"**HAUSSE PRÉVUE** : +{((pred_j1/last_day_adm - 1) * 100):.0f}% demain")
 
 # =============================================================================
 # TAB 2: ADMISSIONS & LITS
 # =============================================================================
 
 with tab2:
-    st.header("📊 Admissions & Occupation des Lits")
+    st.header("Admissions & Lits & Stock")
     
-    # Slider nb_jours ICI (dans l'onglet)
-    nb_jours = st.slider(
-        "Période à afficher (jours):",
-        min_value=30, max_value=365, value=90, step=30,
-        help="Ajuster la période d'historique affichée"
+    # Sélecteur de période
+    nb_jours = st.select_slider(
+        "Historique à afficher :",
+        options=[30, 60, 90, 180, 365, "Tout"],
+        value=90
     )
     
+    if nb_jours != "Tout":
+        df_recent = df_adm.tail(nb_jours)
+        df_beds_recent = df_beds.tail(nb_jours)
+        df_staff_recent = df_staff.tail(nb_jours)
+    else:
+        df_recent = df_adm
+        df_beds_recent = df_beds
+        df_staff_recent = df_staff
+
+    # --- GRAPHIQUE 1 : FLUX D'ADMISSIONS ---
+    st.subheader("1. Flux d'Admissions Quotidien")
+    
+    fig_adm = go.Figure()
+    fig_adm.add_trace(go.Scatter(x=df_recent['date'], y=df_recent['nb_admissions'],
+                                 mode='lines', name='Admissions', line=dict(color='#3498DB', width=2)))
+    fig_adm.add_trace(go.Scatter(x=df_recent['date'], y=df_recent['nb_admissions'].rolling(7).mean(),
+                                 mode='lines', name='Moyenne 7j', line=dict(color='#E74C3C', width=2, dash='dash')))
+    
+    fig_adm.update_layout(template="plotly_dark", height=350, margin=dict(l=0, r=0, t=30, b=0))
+    st.plotly_chart(fig_adm, use_container_width=True)
+
     st.markdown("---")
+
+    # --- GRAPHIQUE 2 : OCCUPATION DES LITS ---
+    st.subheader("2. Taux d'Occupation des Lits")
     
-    # Graphique Admissions
-    st.subheader("Évolution des Admissions")
+    fig_beds = go.Figure()
     
-    fig1, ax1 = plt.subplots(figsize=(14, 6))
-    df_recent = df_adm.tail(nb_jours)
+    fig_beds.add_trace(go.Bar(
+        x=df_beds_recent['date'], 
+        y=df_beds_recent['lits_occupees'],
+        name='Lits Occupés',
+        marker_color='#3498DB',
+        opacity=0.7
+    ))
     
-    ax1.plot(df_recent['date'], df_recent['nb_admissions'], 
-             color='#3498DB', linewidth=2.5, label='Admissions quotidiennes')
-    
-    rolling = df_recent['nb_admissions'].rolling(7).mean()
-    ax1.plot(df_recent['date'], rolling, 
-             color='#E74C3C', linestyle='--', linewidth=2, label='Moyenne 7j')
-    
-    ax1.set_title(f'Admissions ({nb_jours} derniers jours)', fontsize=14, fontweight='bold')
-    ax1.set_ylabel('Admissions', fontsize=11)
-    ax1.legend()
-    ax1.grid(True, alpha=0.3)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    
-    st.pyplot(fig1)
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Moyenne", f"{df_recent['nb_admissions'].mean():.0f}")
-    with col2:
-        st.metric("Maximum", f"{df_recent['nb_admissions'].max():.0f}")
-    with col3:
-        st.metric("Minimum", f"{df_recent['nb_admissions'].min():.0f}")
-    
-    st.markdown("---")
-    
-    # Graphique Lits
-    st.subheader("Occupation des Lits")
-    
-    fig2, ax2 = plt.subplots(figsize=(14, 6))
-    df_beds_recent = df_beds.tail(nb_jours)
-    
-    ax2.bar(df_beds_recent['date'], df_beds_recent['lits_occupees'],
-            color='#3498DB', alpha=0.7, label='Lits occupés')
-    
-    ax2.axhline(capacite, color='red', linestyle='-', 
-                linewidth=3, label=f'Capacité: {capacite}')
-    
-    if capacite == 2500:
-        ax2.axhline(1800, color='orange', linestyle='--', 
-                    linewidth=2, label='Capacité normale: 1800')
-        ax2.fill_between(df_beds_recent['date'], 1800, 2500, 
-                         alpha=0.1, color='red', label='Lits Plan Blanc')
-    
-    ax2.set_title(f'Occupation - Capacité: {capacite}', fontsize=14, fontweight='bold')
-    ax2.set_ylabel('Lits', fontsize=11)
-    ax2.legend()
-    ax2.grid(True, alpha=0.3, axis='y')
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    
-    st.pyplot(fig2)
+    fig_beds.add_trace(go.Scatter(
+        x=df_beds_recent['date'], 
+        y=[capacite] * len(df_beds_recent),
+        mode='lines',
+        name='Capacité Max',
+        line=dict(color='#E74C3C', width=3)
+    ))
+
+    #
+    if capacite > 2000:
+        fig_beds.add_trace(go.Scatter(
+            x=df_beds_recent['date'],
+            y=[1800] * len(df_beds_recent),
+            mode='lines',
+            name='Capacité Standard (1800)',
+            line=dict(color='#F1C40F', width=2, dash='dot')
+        ))
+
+    fig_beds.update_layout(
+        title=f"Occupation vs Capacité ({capacite} lits)",
+        yaxis_title="Nombre de lits",
+        template="plotly_dark",
+        height=400,
+        hovermode="x unified"
+    )
+    st.plotly_chart(fig_beds, use_container_width=True)
     
     taux_moyen = (df_beds_recent['lits_occupees'].mean() / capacite) * 100
-    jours_sat = len(df_beds_recent[df_beds_recent['lits_occupees'] >= capacite])
+    pic_recent = df_beds_recent['lits_occupees'].max()
     
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.metric("Taux moyen", f"{taux_moyen:.1f}%")
-    with col2:
-        st.metric("Jours saturation", f"{jours_sat}")
-    with col3:
-        st.metric("Pic", f"{df_beds_recent['lits_occupees'].max()}")
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Occupation Moyenne", f"{taux_moyen:.1f}%")
+    c2.metric("Pic d'occupation", f"{pic_recent} lits")
+    c3.metric("Marge de sécurité min", f"{capacite - pic_recent} lits")
+
+    st.markdown("---")
+
+    # --- GRAPHIQUE 3 : RESSOURCES HUMAINES ---
+    st.subheader("3. Effectifs Présents")
+
+    fig_staff = px.area(
+        df_staff_recent, 
+        x='date', 
+        y=['medecins', 'infirmiers', 'aides_soignants'],
+        color_discrete_map={
+            'medecins': '#e74c3c', 
+            'infirmiers': '#3498db', 
+            'aides_soignants': '#2ecc71'
+        },
+        template="plotly_dark"
+    )
+    fig_staff.update_layout(height=350, margin=dict(l=0, r=0, t=30, b=0))
+    st.plotly_chart(fig_staff, use_container_width=True)
 
 # =============================================================================
 # TAB 3: PRÉVISIONS IA
 # =============================================================================
 
 with tab3:
-    st.header("🔮 Prévisions Intelligence Artificielle")
+    st.header("Prévisions Intelligence Artificielle")
     
     st.markdown("---")
     
@@ -309,70 +330,21 @@ with tab3:
     st.markdown("---")
     
     # Tableau détail
-    st.subheader("📋 Détail des Prévisions")
+    st.subheader("Détail des Prévisions")
     df_display = df_pred.copy()
     df_display['Jour'] = df_display['date'].dt.strftime('%A %d/%m')
     df_display['Prévision'] = df_display['pred_admissions'].apply(lambda x: f"{x:.0f}")
     st.dataframe(df_display[['Jour', 'Prévision']], hide_index=True, use_container_width=True)
-    
-    st.markdown("---")
-    
-    # Graphiques validation
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("GraphA : Comparaison Modèles")
-        if os.path.exists("graphA_comparaison_modeles.png"):
-            img = Image.open("graphA_comparaison_modeles.png")
-            st.image(img, use_container_width=True)
-            with st.expander("📖 Description"):
-                st.markdown("""
-                **Objectif** : Comparer 3 algorithmes ML (XGBoost, Random Forest, Gradient Boosting).
-                
-                """)
-        else:
-            st.info("GraphA non trouvé")
-    
-    with col2:
-        st.subheader("GraphB : Validation Walk-Forward")
-        if os.path.exists("graphB_validation_horizon7j.png"):
-            img = Image.open("graphB_validation_horizon7j.png")
-            st.image(img, use_container_width=True)
-            with st.expander("📖 Description"):
-                st.markdown("""
-                **Objectif** : Valider sur horizon 7 jours RÉEL (10 semaines testées).
-                
-                **Méthode** : Prédire 7 jours d'un coup sans recalcul quotidien.
-                
-                **R² = 0.51** : Rigoureux et honnête (pas de triche).
-                """)
-        else:
-            st.info("GraphB non trouvé")
-    
-    st.markdown("---")
-    
-    st.subheader("GraphC : Prévisions Visuelles")
-    if os.path.exists("graphC_previsions_7jours.png"):
-        img = Image.open("graphC_previsions_7jours.png")
-        st.image(img, use_container_width=True)
-        with st.expander("📖 Description"):
-            st.markdown("""
-            **Objectif** : Visualiser les 7 prochains jours avec intervalles de confiance.
-            
-            **Utilisation** : Planning hebdomadaire personnel/stocks.
-            """)
-    else:
-        st.info("GraphC non trouvé")
-
+        
 # =============================================================================
-# TAB 4: SIMULATION & RECOMMANDATIONS (TOUT ENSEMBLE)
+# TAB 4: SIMULATION & RECOMMANDATIONS
 # =============================================================================
 
 with tab4:
-    st.header("⚡ Simulation de Crise & Recommandations")
+    st.header("Simulation de Crise & Recommandations")
     
     # Configuration simulation
-    st.subheader("🎯 Configuration du Scénario")
+    st.subheader("Configuration du Scénario")
     
     col1, col2, col3, col4 = st.columns(4)
     
@@ -382,332 +354,405 @@ with tab4:
             ["Aucun", "Épidémie", "Grève", "Canicule", "Grand froid", "Accident massif"]
         )
     
-    # Paramètres par défaut
     if scenario == "Épidémie":
-        default_adm, default_staff = 40, -20
+        default_adm = 40
+        default_staff = -10
+        default_duree = 21
     elif scenario == "Grève":
-        default_adm, default_staff = -10, -40
+        default_adm = 0
+        default_staff = -50
+        default_duree = 3
     elif scenario == "Canicule":
-        default_adm, default_staff = 25, -10
+        default_adm = 25
+        default_staff = -5
+        default_duree = 10
     elif scenario == "Grand froid":
-        default_adm, default_staff = 30, -15
+        default_adm = 30
+        default_staff = -5
+        default_duree = 14
     elif scenario == "Accident massif":
-        default_adm, default_staff = 60, 0
+        default_adm = 60
+        default_staff = 0
+        default_duree = 2
     else:
-        default_adm, default_staff = 0, 0
+        default_adm = 0
+        default_staff = 0
+        default_duree = 7
     
     with col2:
         impact_admissions = st.slider(
             "Impact admissions (%):",
-            -50, 100, default_adm, 5
+            -50, 200, default_adm, 5
         )
     
     with col3:
         impact_staff = st.slider(
             "Impact personnel (%):",
-            -50, 50, default_staff, 5
+            -90, 50, default_staff, 5,
+            help="Si négatif, réduit la capacité réelle de l'hôpital"
         )
     
     with col4:
         duree_crise = st.slider(
             "Durée (jours):",
-            1, 30, 7, 1
+            1, 30, 8, 1
         )
     
-    simulation_active = st.button("🚀 Lancer la Simulation", type="primary")
-    
+    simulation_active = st.button("Lancer la Simulation", type="primary")
+    last_date_str = df_adm.iloc[-1]['date'].strftime('%d/%m/%Y')
     st.markdown("---")
     
-    # Résultats simulation OU recommandations réelles
     if scenario != "Aucun" or simulation_active:
-        # Calculs simulation
+        # 1. CALCULS INTELLIGENTS
+        
+        # A. Prédictions IA (Admissions)
         if ai_models:
-            # Prédictions IA sur 7 jours avec scénario
             predictions_ai = predict_next_7_days_with_ai(
                 df_admissions=df_adm,
                 models_dict=ai_models,
                 scenario=scenario,
                 impact_adm=impact_admissions
             )
-            adm_simulees = predictions_ai[0]  # J+1
-            st.info(f"🤖 Prédictions IA activées : {[int(p) for p in predictions_ai]}")
+            adm_simulees_base = np.mean(predictions_ai)
         else:
-            # Fallback si modèle absent
-            adm_simulees = pred_j1 * (1 + impact_admissions/100)        
-        staff_dispo = 110 * (1 + impact_staff/100)
-        impact_total = adm_simulees * duree_crise * 0.15
-        beds_necessaires = last_day_beds + impact_total
-        taux_sim = (beds_necessaires / capacite) * 100
+            adm_simulees_base = pred_j1 * (1 + impact_admissions/100)
+            
+        facteur_reduction_capacite = 1 + (impact_staff / 100)
+        if facteur_reduction_capacite < 0.2: facteur_reduction_capacite = 0.2
         
-        if simulation_active:
-            st.subheader(f"📊 Résultats Simulation : {scenario}")
-        else:
-            st.subheader(f"📊 Analyse Scénario : {scenario}")
+        capacite_operationnelle = int(capacite * facteur_reduction_capacite)
         
-        # Métriques
+        # C. Projection sur la durée
+        jours = np.arange(duree_crise)
+        admissions_proj = [adm_simulees_base * (1 + np.random.normal(0, 0.05)) for _ in jours]
+        
+
+        beds_proj = []
+        current_beds = last_day_beds
+        
+        for adm_du_jour in admissions_proj:
+            sorties_estimees = current_beds * 0.15
+            if impact_staff < 0:
+                sorties_estimees *= (1 + impact_staff/100) 
+            
+            current_beds = current_beds - sorties_estimees + adm_du_jour
+            beds_proj.append(current_beds)
+        
+        # --- AFFICHAGE DES RÉSULTATS ---
+        
+        st.subheader(f"Analyse : Scénario {scenario} ({duree_crise} jours)")
+        
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            st.metric("Admissions prévues J+1", f"{int(adm_simulees)}",
-                     delta=f"{impact_admissions:+d}%")
+            st.metric("Flux Patients / Jour", f"{int(adm_simulees_base)}",
+                     delta=f"{impact_admissions:+d}% vol.")
         
         with col2:
-            ratio_crise = adm_simulees / staff_dispo if staff_dispo > 0 else 999
-            st.metric("Patients/infirmier", f"{ratio_crise:.1f}",
-                     delta="Élevé" if ratio_crise > 4 else "Normal")
+            st.metric("Capacité Staffée", f"{capacite_operationnelle} lits",
+                     delta=f"{capacite_operationnelle - capacite} lits",
+                     delta_color="inverse",
+                     help="Nombre de lits réellement gérables avec le staff disponible")
         
         with col3:
-            st.metric("Taux occupation prévu", f"{taux_sim:.1f}%",
-                     delta="🔴" if taux_sim > 90 else "🟠" if taux_sim > 80 else "🟢")
-        
-        # Alerte si scénario extrême mais situation semble normale
-        if scenario == "Épidémie" and impact_admissions >= 60 and taux_sim < 70:
-            st.warning("""
-            ⚠️ **ATTENTION** : Avec un scénario **Épidémie +80%**, le taux prévu de 61.9% 
-            semble normal car la capacité actuelle est de 1800 lits. Cependant, avec 531 admissions 
-            prévues (+80%), la situation deviendra rapidement critique si elle se prolonge sur 
-            plusieurs jours. Recommandation : activer la surveillance renforcée dès maintenant.
-            """)
-        
+            # Le taux d'occupation est calculé sur la capacité RÉDUITE
+            taux_reel = (beds_proj[-1] / capacite_operationnelle) * 100
+            st.metric("Tension Réelle", f"{taux_reel:.0f}%",
+                     delta="CRITIQUE" if taux_reel > 100 else "Élevée")
+
         st.markdown("---")
         
-        # Graphique projection
-        st.subheader("📈 Projection sur la Durée de la Crise")
+        # Graphique Projection
+        st.subheader("Projection de la Saturation (Impact Staff inclus)")
         
         fig_sim, ax_sim = plt.subplots(figsize=(12, 5))
         
-        jours = np.arange(duree_crise)
-        admissions_proj = [adm_simulees * (1 - 0.02*j) for j in jours]
-        beds_proj = [beds_necessaires + sum(admissions_proj[:i+1]) * 0.3 for i in jours]
+        # Courbe des lits occupés
+        ax_sim.plot(jours, beds_proj, marker='o', linewidth=3, 
+                    label='Patients Hospitalisés', color='#E74C3C')
         
-        ax_sim.plot(jours, beds_proj, marker='o', linewidth=2, 
-                    label='Lits occupés projetés', color='#E74C3C')
-        ax_sim.axhline(capacite, color='red', linestyle='--', linewidth=2, 
-                       label=f'Capacité ({capacite})')
-        ax_sim.fill_between(jours, beds_proj, capacite, 
-                            where=(np.array(beds_proj) > capacite),
-                            color='red', alpha=0.3, label='Dépassement')
+        # Ligne de capacité PHYSIQUE
+        ax_sim.axhline(capacite, color='gray', linestyle='--', alpha=0.5, 
+                       label=f'Capacité Murale ({capacite})')
         
-        ax_sim.set_xlabel('Jour', fontsize=11)
-        ax_sim.set_ylabel('Lits occupés', fontsize=11)
-        ax_sim.set_title(f'Projection {duree_crise} jours - {scenario}', 
-                         fontsize=13, fontweight='bold')
+        # Ligne de capacité OPÉRATIONNELLE 
+        ax_sim.axhline(capacite_operationnelle, color='#F1C40F', linestyle='-', linewidth=2, 
+                       label=f'Capacité Staffée ({capacite_operationnelle})')
+        
+        # Zone de DANGER
+        ax_sim.fill_between(jours, beds_proj, capacite_operationnelle, 
+                            where=(np.array(beds_proj) > capacite_operationnelle),
+                            color='#E74C3C', alpha=0.3, label='Zone de Rupture RH')
+        
+        ax_sim.set_xlabel('Jours de crise', fontsize=11)
+        ax_sim.set_ylabel('Lits', fontsize=11)
         ax_sim.legend()
         ax_sim.grid(True, alpha=0.3)
         plt.tight_layout()
-        
         st.pyplot(fig_sim)
         
-        st.markdown("---")
+        # RECOMMANDATIONS INTELLIGENTES
+        st.subheader("Recommandations Stratégiques")
         
-        # Recommandations automatiques
-        st.subheader("💡 Recommandations Automatiques")
+        # Calcul du nombre de jours en rupture
+        jours_rupture = sum(1 for b in beds_proj if b > capacite_operationnelle)
         
-        # Calculer jours saturation
-        jours_saturation_check = sum(1 for b in beds_proj if b > capacite)
-        
-        # LOGIQUE UNIFIÉE basée sur jours de saturation
-        if jours_saturation_check > 5:
-            st.error(f"""
-            ### 🚨 SITUATION EXCEPTIONNELLE : {jours_saturation_check} jours sur {duree_crise} en saturation !
-            
-            ⚠️ **Plus de 5 jours en saturation = GRAVISSIME**
-            
-            **Conséquences réelles** :
-            - Refus d'admissions obligatoire
-            - Patients dans les couloirs
-            - Transferts massifs vers autres hôpitaux
-            - Épuisement personnel médical
-            - Risque sécurité patients
-            
-            **Actions d'urgence absolue (H0)** :
-            - ✅ Activer Plan Blanc élargi (TOUS services)
-            - ✅ Ouvrir les 700 lits de débordement
-            - ✅ Rappeler TOUT personnel (congés annulés)
-            - ✅ Déprogrammer 100% opérations non-urgentes
-            - ✅ Contacter ARS pour délestage inter-hospitalier
-            - ✅ Activer convention hôpitaux voisins
-            - ✅ Installer lits temporaires (gymnase, tentes)
-            - ✅ Demander renfort militaire si nécessaire
-            """)
-        elif jours_saturation_check > 2:
-            st.warning(f"""
-            ### ⚠️ SATURATION DÉTECTÉE : {jours_saturation_check} jour(s) en dépassement
-            
-            **Actions urgentes (24H)** :
-            - Prévenir personnel de réserve
-            - Vérifier lits débordement disponibles
-            - Reporter admissions programmées
-            - Surveillance critique quotidienne
-            """)
-        elif taux_sim > 90:
-            st.error("""
-            ### 🚨 ACTION URGENTE : Plan Blanc Immédiat
-            - Rappeler le personnel en congé
-            - Ouvrir les 700 lits de débordement
-            - Déprogrammer opérations non-urgentes
-            - Activer cellule de crise
-            """)
-        elif taux_sim > 80:
-            st.warning("""
-            ### ⚠️ SATURATION IMMINENTE : Préparation Plan Blanc
-            - Prévenir personnel de réserve
-            - Vérifier lits débordement
-            - Reporter admissions programmées
-            """)
-        elif taux_sim > 70:
-            st.info("""
-            ### 💡 TENSION CONFIRMÉE : Mobilisation préventive
-            - Renforcer effectifs
-            - Accélérer sorties
-            - Limiter admissions programmées
-            """)
+        if jours_rupture > 0:
+            if impact_staff < -20:
+                st.error(f"""
+                ALERTE MAJEURE : L'hôpital s'effondre par manque de personnel
+                Avec **{impact_staff}% de staff**, votre capacité réelle tombe à **{capacite_operationnelle} lits**.
+                
+                **Actions Immédiates :**
+                1.  **Fermeture de {capacite - capacite_operationnelle} lits** (sécurité patient).
+                2. Appel à la Réserve Sanitaire Nationale.
+                3. Déroutement des ambulances vers autres hôpitaux (Délestage).
+                4. Primes de solidarité pour rappel staff.
+                """)
+            elif jours_rupture > 5:
+                st.error("""
+                PLAN BLANC OBLIGATOIRE
+                La saturation va durer plus de 5 jours. Les équipes ne tiendront pas.
+                - Déprogrammer tout le non-urgent.
+                - Rappel du personnel sur repos.
+                """)
+            else:
+                st.warning(f"""
+                TENSION TEMPORAIRE ({jours_rupture} jours)
+                Situation critique mais courte.
+                - Heures supplémentaires.
+                - Sorties anticipées.
+                """)
         else:
-            st.success("✅ **SITUATION NORMALE** : Capacité suffisante")
+            st.success("Le système tient le choc malgré la crise.")
+
+
+        # =========================================================
+        # MODE : SITUATION DE RÉFÉRENCE 
+        # =========================================================
         
-        # Coût
-        st.subheader("💰 Impact Économique")
+                
+        st.subheader(f"Situation de Référence (au {last_date_str})")
         
-        jours_saturation = sum(1 for b in beds_proj if b > capacite)
-        cout_total = jours_saturation * 50000
+        taux_actuel = (last_day_beds / capacite) * 100
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Jours saturation", f"{jours_saturation}/{duree_crise}")
-        with col2:
-            st.metric("Coût estimé", f"{cout_total/1000:.0f}k€")
-    
-    else:
-        # Recommandations basées sur données réelles
-        st.info("👆 Sélectionnez un scénario ou utilisez les données réelles")
-        
-        stress_level = taux_occupation
-        
-        st.subheader("📊 Analyse Situation Actuelle")
+        # Tendance sur les 7 derniers jours du fichier
+        mean_7j = df_adm.tail(7)['nb_admissions'].mean()
+        mean_prev_7j = df_adm.tail(14).head(7)['nb_admissions'].mean()
+        evolution = ((mean_7j - mean_prev_7j) / mean_prev_7j) * 100
         
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            tendance = (df_adm.tail(7)['nb_admissions'].mean() - 
-                       df_adm.tail(14).head(7)['nb_admissions'].mean())
-            pct = (tendance / df_adm.tail(14).head(7)['nb_admissions'].mean()) * 100
-            st.metric("Tendance 7j", f"{pct:+.1f}%")
+            st.metric("Occupation Lits", f"{taux_actuel:.1f}%", 
+                     delta=f"{last_day_beds} / {capacite}")
         
         with col2:
-            st.metric("Niveau stress", f"{stress_level:.0f}%",
-                     delta="Élevé" if stress_level > 85 else "Normal")
-        
+            st.metric("Flux Admissions", f"{int(mean_7j)} /jour", 
+                     delta=f"{evolution:+.1f}% (Tendance 7j)")
+            
         with col3:
-            jours_sat = (capacite - last_day_beds) / df_adm.tail(7)['nb_admissions'].mean()
-            st.metric("Jours avant saturation", f"{int(jours_sat)}")
-        
+            lits_restants = capacite - last_day_beds
+            if mean_7j > 0:
+                jours_restants = lits_restants / (mean_7j * 0.1) 
+            else:
+                jours_restants = 99
+            
+            valeur_affichée = int(jours_restants) if jours_restants < 30 else "> 30"
+            st.metric("Marge de sécurité", f"{valeur_affichée} jours",
+                     delta="Avant saturation théorique",
+                     delta_color="normal")
+
         st.markdown("---")
+
+        # DIAGNOSTIC AUTOMATIQUE 
+        st.subheader("Diagnostic de la Situation")
         
-        st.subheader("💡 Recommandations")
-        
-        if stress_level > 80:
-            st.warning("⚠️ **Tension élevée** : Surveiller quotidiennement")
-        elif stress_level > 70:
-            st.info("💡 **Surveillance renforcée** recommandée")
+        if taux_actuel > 95:
+            st.error(f"""
+            CRITIQUE : Hôpital Saturé à {taux_actuel:.1f}%
+            La situation actuelle est intenable. 
+            Il n'y a presque plus de marge de manœuvre pour absorber un imprévu.
+            """)
+        elif taux_actuel > 85:
+            st.warning(f"""
+            TENSION ÉLEVÉE : Occupation à {taux_actuel:.1f}%
+            L'hôpital fonctionne à plein régime. 
+            Le moindre événement (grippe, accident) fera basculer vers la saturation.
+            """)
+        elif taux_actuel > 60:
+            st.info(f"""
+            ACTIVITÉ NORMALE : Occupation à {taux_actuel:.1f}%
+            Le flux est soutenu mais géré. Les équipes sont en place.
+            """)
         else:
-            st.success("✅ Situation sous contrôle")
+            st.success(f"""
+            SITUATION CALME : Occupation à {taux_actuel:.1f}%
+            Capacité d'accueil très large disponible.
+            """)
 
 # =============================================================================
-# TAB 5: ANALYSES OPÉRATIONNELLES
+# TAB 5: GESTION DES STOCKS & LOGISTIQUE
 # =============================================================================
 
 with tab5:
-    st.header("📈 Analyses Opérationnelles")
+    st.header("Pilotage Logistique & Stocks")
     
-    st.markdown("""
-    Ces graphiques analysent les données quotidiennes et l'impact des événements.
-    """)
+    last_row = df_stocks.iloc[-1]
     
+    items_stock = {
+        "Masques": "masques",
+        "Blouses": "blouses",
+        "Respirateurs": "respirateurs",
+        "Tests PCR": "tests",
+        "Gel Hydro (L)": "gel"
+    }
+    
+    st.subheader("État des lieux instantané")
+    cols = st.columns(len(items_stock))
+    
+    for i, (label, col_name) in enumerate(items_stock.items()):
+        stock_actuel = last_row[col_name]
+        seuil = last_row[f"seuil_{col_name}"]
+        
+        if stock_actuel < seuil:
+            etat = "🔴 CRITIQUE"
+            delta_color = "inverse"
+        elif stock_actuel < seuil * 1.2:
+            etat = "🟠 BAS"
+            delta_color = "normal"
+        else:
+            etat = "🟢 OK"
+            delta_color = "normal"
+            
+        with cols[i]:
+            st.metric(label, f"{stock_actuel:,}", delta=etat, delta_color="off")
+
     st.markdown("---")
+
+    col_left, col_right = st.columns([1, 2])
     
-    # Graph 1
-    st.subheader("Graph 1 : Impact des Épidémies")
-    if os.path.exists("graph1_admissions_epidemies.png"):
-        img = Image.open("graph1_admissions_epidemies.png")
-        st.image(img, use_container_width=True)
-        with st.expander("📖 Description"):
-            st.markdown("""
-            **Objectif** : Visualiser l'impact des événements (grippe, COVID, canicule) sur les admissions.
+    with col_left:
+        st.subheader("Focus Matériel")
+        choix_item_label = st.selectbox("Sélectionner un stock à analyser :", list(items_stock.keys()))
+        item_col = items_stock[choix_item_label]
+        
+        current_val = last_row[item_col]
+        threshold_val = last_row[f"seuil_{item_col}"]
+        max_val_histo = df_stocks[item_col].max()
+        
+
+        fig_gauge = go.Figure(go.Indicator(
+            mode = "gauge+number+delta",
+            value = current_val,
+            domain = {'x': [0, 1], 'y': [0, 1]},
+            title = {'text': f"Niveau actuel", 'font': {'size': 20}},
+            delta = {'reference': threshold_val, 'increasing': {'color': "green"}, 'decreasing': {'color': "red"}},
+            gauge = {
+                'axis': {'range': [0, max_val_histo * 1.1], 'tickwidth': 1, 'tickcolor': "white"},
+                'bar': {'color': "#3498DB"}, # Bleu
+                'bgcolor': "rgba(0,0,0,0)",
+                'borderwidth': 2,
+                'bordercolor': "#333",
+                'steps': [
+                    {'range': [0, threshold_val], 'color': 'rgba(231, 76, 60, 0.6)'}, # Rouge (Zone Critique)
+                    {'range': [threshold_val, threshold_val*1.5], 'color': 'rgba(241, 196, 15, 0.4)'} # Jaune (Zone Tampon)
+                ],
+                'threshold': {
+                    'line': {'color': "red", 'width': 4},
+                    'thickness': 0.75,
+                    'value': threshold_val
+                }
+            }
+        ))
+        fig_gauge.update_layout(height=300, margin=dict(l=20, r=20, t=50, b=20), paper_bgcolor="rgba(0,0,0,0)")
+        st.plotly_chart(fig_gauge, use_container_width=True)
+        
+        # --- B. ESTIMATION AUTONOMIE  ---
+        st.markdown("##### Estimation d'Autonomie")
+        
+        df_last_30 = df_stocks.tail(30)
+        diffs = df_last_30[item_col].diff()
+        conso_moyenne = abs(diffs[diffs < 0].mean())
+        
+        if conso_moyenne > 0:
+            jours_restants = current_val / conso_moyenne
             
-            **Points colorés** = événements spéciaux  
-            **Pics** = périodes d'épidémies
+            if jours_restants < 5:
+                st.error(f"RUPTURE IMMINENTE\n\nStock épuisé dans **{jours_restants:.1f} jours au rythme actuel.")
+            elif jours_restants < 15:
+                st.warning(f"ATTENTION\n\nAutonomie estimée : **{int(jours_restants)} jours.")
+            else:
+                st.success(f"CONFORTABLE\n\nAutonomie estimée : **{int(jours_restants)} jours.")
+                
+            st.caption(f"Consommation moyenne : {int(conso_moyenne)} unités/jour")
+        else:
+            st.info("Pas de consommation détectée récemment.")
+
+    with col_right:
+        st.subheader("Historique & Livraisons")
+        
+        # --- C. GRAPHIQUE INTELLIGENT ---
+        df_chart = df_stocks.tail(180)
+        
+        fig_line = go.Figure()
+        
+        fig_line.add_trace(go.Scatter(
+            x=df_chart['date'], 
+            y=df_chart[item_col],
+            mode='lines', 
+            name='Stock disponible',
+            fill='tozeroy',
+            line=dict(color='#3498DB', width=2)
+        ))
+        
+        # 2. Ligne de seuil critique
+        fig_line.add_trace(go.Scatter(
+            x=df_chart['date'], 
+            y=df_chart[f"seuil_{item_col}"],
+            mode='lines', 
+            name='Seuil Sécurité',
+            line=dict(color='#E74C3C', width=2, dash='dash')
+        ))
+        
+        # 3. Marqueurs de Réapprovisionnement
+        cmd_col = f"cmd_{item_col}"
+        if cmd_col in df_stocks.columns:
+            commandes = df_chart[df_chart[cmd_col] == 1]
             
-            **📊 Résultats observés** : Les points verts (grippe) apparaissent en 
-            janvier-février et coïncident avec des pics à 280-300 admissions. Les 
-            points rouges (COVID) sur 2020-2023 montrent des pics massifs jusqu'à 
-            350 admissions. Les canicules (points oranges) en juillet-août causent 
-            des hausses modérées de 15-20%.
-            
-            **Utilité** : Anticiper les crises futures basées sur les patterns historiques.
-            """)
-    else:
-        st.info("graph1_admissions_epidemies.png non trouvé")
-    
-    st.markdown("---")
-    
-    # Graph 2
-    st.subheader("Graph 2 : Risque de Saturation")
-    if os.path.exists("graph2_saturation_lits.png"):
-        img = Image.open("graph2_saturation_lits.png")
-        st.image(img, use_container_width=True)
-        with st.expander("📖 Description"):
-            st.markdown("""
-            **Objectif** : Surveiller le taux d'occupation et identifier les saturations.
-            
-            **Ligne rouge** = taux d'occupation (%)  
-            **Zone rouge** = saturation (>100%)
-            
-            **📊 Résultats observés** : Le taux d'occupation oscille entre 70-95% 
-            la plupart du temps. On observe 3 dépassements de la ligne noire (100%) 
-            correspondant aux périodes COVID 2020-2021. La zone rouge remplie indique 
-            environ 15 jours de saturation totale nécessitant le Plan Blanc.
-            
-            **Utilité** : Anticiper l'activation du Plan Blanc.
-            """)
-    else:
-        st.info("graph2_saturation_lits.png non trouvé")
-    
-    st.markdown("---")
-    
-    # Graph 13 (NOUVEAU)
-    st.subheader("Graph 13 : Performance Temps Réel (30 jours)")
-    if os.path.exists("graph13_performance_temps_reel.png"):
-        img = Image.open("graph13_performance_temps_reel.png")
-        st.image(img, use_container_width=True)
-        with st.expander("📖 Description"):
-            st.markdown("""
-            **Objectif** : Démontrer la précision du modèle sur les 30 derniers jours.
-            
-            **Ligne bleue** = Admissions réelles  
-            **Ligne rouge** = Prédictions IA  
-            **Zone rouge** = Intervalle de confiance ±MAE  
-            **Zone verte** = Zone de précision ±5%
-            
-            **📊 Résultats observés** : Sur les 30 derniers jours, le modèle XGBoost 
-            maintient une précision moyenne de 96%. La majorité des prédictions tombent 
-            dans la zone verte (±5%), validant la robustesse opérationnelle du système. 
-            Les quelques points annotés (>10% erreur) correspondent aux événements 
-            imprévisibles (jours fériés, pics exceptionnels).
-            
-            **Utilité** : Valider que le modèle fonctionne bien en conditions réelles.
-            """)
-    else:
-        st.info("graph13_performance_temps_reel.png non trouvé")
-    
-    st.markdown("---")
-    
+            if not commandes.empty:
+                fig_line.add_trace(go.Scatter(
+                    x=commandes['date'], 
+                    y=commandes[item_col],
+                    mode='markers', 
+                    name='Livraison Reçue',
+                    marker=dict(color='#2ECC71', size=12, symbol='star', line=dict(width=2, color='white'))
+                ))
+
+        fig_line.update_layout(
+            title=f"Évolution {choix_item_label} (6 derniers mois)",
+            xaxis_title="Date",
+            yaxis_title="Quantité en stock",
+            template="plotly_dark",
+            hovermode="x unified",
+            height=450,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+        )
+        
+        st.plotly_chart(fig_line, use_container_width=True)
+        
+        with st.expander("Voir l'historique complet (2014-2024)"):
+            fig_full = go.Figure()
+            fig_full.add_trace(go.Scatter(x=df_stocks['date'], y=df_stocks[item_col], line=dict(color='#3498DB')))
+            fig_full.update_layout(title="Historique Complet", template="plotly_dark", height=300)
+            st.plotly_chart(fig_full, use_container_width=True)
 
 # =============================================================================
 # TAB 6: ANALYSES STATISTIQUES
 # =============================================================================
 
 with tab6:
-    st.header("🔬 Analyses Statistiques Avancées")
+    st.header("Analyses Statistiques Avancées")
     
     st.markdown("""
     Méthodes statistiques pour détecter patterns et corrélations.
@@ -720,18 +765,15 @@ with tab6:
     if os.path.exists("graph7_heatmap_admissions.png"):
         img = Image.open("graph7_heatmap_admissions.png")
         st.image(img, use_container_width=True)
-        with st.expander("📖 Description"):
+        with st.expander("Description"):
             st.markdown("""
-            **Objectif** : Identifier patterns hebdomadaires et saisonniers.
-            
-            **Couleur** = nombre moyen d'admissions (rouge = élevé, jaune = faible)
-            
-            **📊 Résultats observés** : On observe clairement que les weekends (samedi/dimanche) 
+            Objectif : Identifier patterns hebdomadaires et saisonniers.
+                        
+            Résultats observés : On observe clairement que les weekends (samedi/dimanche) 
             sont en jaune (moins d'admissions ~200), tandis que janvier-février (mois 1-2) et 
             décembre (mois 12) sont rouge foncé (pics à 300-350 admissions). Les vendredis d'hiver 
             atteignent 344 admissions.
             
-            **Insight** : Weekend = moins d'admissions, Hiver = pics.
             """)
     else:
         st.info("graph7_heatmap_admissions.png non trouvé")
@@ -743,19 +785,19 @@ with tab6:
     if os.path.exists("graph10_correlation.png"):
         img = Image.open("graph10_correlation.png")
         st.image(img, use_container_width=True)
-        with st.expander("📖 Description"):
+        with st.expander("Description"):
             st.markdown("""
-            **Objectif** : Quantifier relation gravité/durée hospitalisation.
+            Objectif : Quantifier relation gravité/durée hospitalisation.
             
-            **Chaque point** = 1 patient  
-            **Ligne rouge** = régression linéaire
+            Chaque point = 1 patient  
+            Ligne rouge = régression linéaire
             
-            **📊 Résultats observés** : Le coefficient r indique une corrélation positive 
+            Résultats observés : Le coefficient r indique une corrélation positive 
             modérée. Les patients de gravité 1 restent en moyenne 5-10 jours, tandis que 
             ceux de gravité 5 peuvent rester 20-30 jours. La dispersion augmente avec la 
             gravité (plus de variabilité pour les cas graves).
             
-            **Utilité** : Prédire durée selon gravité pour anticiper occupation lits.
+            Utilité : Prédire durée selon gravité pour anticiper occupation lits.
             """)
     else:
         st.info("graph10_correlation.png non trouvé")
